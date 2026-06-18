@@ -229,30 +229,65 @@ const handleNameChange = (index: number, value: string) => {
     if (!story) return;
     stopSpeech();
 
-    // Audio creat SINCRON în gestul utilizatorului → browserul acordă permisiunea autoplay
-    const audio = new Audio();
-    audioRef.current = audio;
-    setTtsLoading(true);
-    try {
+    // Împarte povestea în bucăți după rânduri goale (paragrafe)
+    const chunks = story
+      .split(/\n\n+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    // Grupează în max 4 bucăți egale ca să nu fie prea multe cereri
+    const GROUP = Math.ceil(chunks.length / 4);
+    const groups: string[] = [];
+    for (let i = 0; i < chunks.length; i += GROUP) {
+      groups.push(chunks.slice(i, i + GROUP).join("\n\n"));
+    }
+
+    const fetchChunk = async (text: string): Promise<string> => {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: story }),
+        body: JSON.stringify({ text }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Eroare TTS");
+      return data.audioContent as string;
+    };
 
-      audio.onended = () => setSpeechState("idle");
-      audio.onerror = () => setSpeechState("idle");
-      audio.src = `data:audio/mp3;base64,${data.audioContent}`;
-      await audio.play();
+    // Primul audio creat SINCRON în gestul utilizatorului (autoplay policy)
+    const firstAudio = new Audio();
+    audioRef.current = firstAudio;
+    setTtsLoading(true);
+
+    try {
+      // Generează prima bucată și pornește imediat
+      const firstB64 = await fetchChunk(groups[0]);
+      setTtsLoading(false);
+      firstAudio.src = `data:audio/mp3;base64,${firstB64}`;
+      await firstAudio.play();
       setSpeechState("speaking");
+
+      // Redă bucățile rămase în secvență
+      for (let i = 1; i < groups.length; i++) {
+        const b64 = await fetchChunk(groups[i]);
+        // Așteaptă să termine bucata curentă
+        await new Promise<void>((resolve) => {
+          if (!audioRef.current || audioRef.current.ended || audioRef.current.paused) {
+            resolve();
+            return;
+          }
+          audioRef.current.onended = () => resolve();
+        });
+        if (!audioRef.current) break; // s-a apăsat Stop
+        const nextAudio = new Audio(`data:audio/mp3;base64,${b64}`);
+        audioRef.current = nextAudio;
+        nextAudio.onended = i === groups.length - 1 ? () => setSpeechState("idle") : null;
+        await nextAudio.play();
+      }
     } catch (err) {
       audioRef.current = null;
       setSpeechState("idle");
-      setError(err instanceof Error ? err.message : "Eroare la redarea vocii.");
-    } finally {
       setTtsLoading(false);
+      setError(err instanceof Error ? err.message : "Eroare la redarea vocii.");
     }
   }, [story, stopSpeech]);
 

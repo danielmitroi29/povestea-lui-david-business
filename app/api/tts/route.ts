@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 
     const truncated = text.slice(0, MAX_CHARS);
     const tts = new MsEdgeTTS();
-    await tts.setMetadata(VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+    await tts.setMetadata(VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
 
     const chunks: Buffer[] = [];
     const { audioStream } = tts.toStream(truncated);
