@@ -10,6 +10,7 @@ const PAGE_SIZE   = 20;
 
 export interface SavedStory {
   id: string;
+  title: string;
   text: string;
   names: string[];
   storyType: string;
@@ -45,11 +46,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { text, names, storyType, isAI, customPrompt } = body;
+    const { text, title, names, storyType, isAI, customPrompt } = body;
     if (!text || !names) return NextResponse.json({ ok: false }, { status: 400 });
 
     const story: SavedStory = {
       id: crypto.randomUUID(),
+      title: title || `Povestea lui ${names[0]}`,
       text,
       names,
       storyType,

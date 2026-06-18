@@ -72,12 +72,12 @@ export default function Home() {
       .finally(() => setStoriesLoading(false));
   };
 
-  const saveStoryToHistory = (text: string, isAI: boolean) => {
+  const saveStoryToHistory = (text: string, title: string, isAI: boolean) => {
     const filteredNames = names.filter((n) => n.trim());
     fetch("/api/stories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, names: filteredNames, storyType, isAI, customPrompt }),
+      body: JSON.stringify({ text, title, names: filteredNames, storyType, isAI, customPrompt }),
     })
       .then(() => loadStories(0))
       .catch(() => {});
@@ -162,7 +162,7 @@ const handleNameChange = (index: number, value: string) => {
       }
       setStory(data.story);
       setActiveStoryId(null);
-      saveStoryToHistory(data.story, true);
+      saveStoryToHistory(data.story, data.title || "", true);
       setTimeout(() => storyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "A apărut o eroare.");
@@ -662,20 +662,18 @@ const handleNameChange = (index: number, value: string) => {
                           }}
                         >
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 700, fontSize: "0.92rem", color: "#5c3010", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#5c3010", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {s.title || s.names.join(", ")}
+                            </div>
+                            <div style={{ fontSize: "0.78rem", color: "#b87333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
                               {s.names.join(", ")}
-                              {storyLabel && <span style={{ fontWeight: 400, color: "#b87333", marginLeft: 6 }}>{storyLabel.emoji} {storyLabel.label}</span>}
+                              {storyLabel && <span style={{ marginLeft: 5 }}>{storyLabel.emoji} {storyLabel.label}</span>}
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
-                              <span style={{ fontSize: "0.75rem", color: "#a07040" }}>{date} · {hour}</span>
+                              <span style={{ fontSize: "0.72rem", color: "#a07040" }}>{date} · {hour}</span>
                               {s.isAI && (
                                 <span style={{ fontSize: "0.68rem", background: "#e8f5e9", color: "#2e7d32", border: "1px solid #a5d6a7", borderRadius: 6, padding: "1px 6px", fontWeight: 700 }}>
                                   ✨ AI
-                                </span>
-                              )}
-                              {!s.isAI && (
-                                <span style={{ fontSize: "0.68rem", background: "#fff3e0", color: "#e65100", border: "1px solid #ffcc80", borderRadius: 6, padding: "1px 6px", fontWeight: 700 }}>
-                                  🏠 Local
                                 </span>
                               )}
                             </div>

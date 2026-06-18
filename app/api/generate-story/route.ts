@@ -47,6 +47,11 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = `Esti un povestitor pentru copii MICI de 3 ani care scrie povesti in limba romana.
 
+Prima linie a raspunsului tau trebuie sa fie exact in formatul:
+TITLU: <un titlu scurt, poetic, maxim 7 cuvinte, in romana>
+
+Dupa titlu, scrie povestea pe randuri noi.
+
 REGULI STRICTE de limbaj pentru 3 ani:
 - Propozitii SCURTE: maxim 6-8 cuvinte fiecare
 - Fiecare propozitie pe rand nou (ca versuri)
@@ -106,9 +111,12 @@ Adauga dialog amuzant, descrieri vii si momente emotionante. Povestea trebuie sa
       max_tokens: 1800,
     });
 
-    const story = completion.choices[0]?.message?.content || "";
+    const raw = completion.choices[0]?.message?.content || "";
+    const titleMatch = raw.match(/^TITLU:\s*(.+)/m);
+    const title = titleMatch ? titleMatch[1].trim() : `Povestea lui ${names[0]}`;
+    const story = raw.replace(/^TITLU:\s*.+\n*/m, "").trim();
 
-    return NextResponse.json({ story });
+    return NextResponse.json({ story, title });
   } catch (error: unknown) {
     if (error && typeof error === "object" && "status" in error) {
       const apiErr = error as { status: number; message?: string; code?: string };
