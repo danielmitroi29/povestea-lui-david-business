@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fff9f0;
+  --foreground: #2d1b00;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+/* ascunde overlay-ul de dev al Next.js */
+nextjs-portal {
+  display: none !important;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.float-animation {
+  animation: float 3s ease-in-out infinite;
+}
+
+.story-text {
+  line-height: 1.9;
+  font-size: 1.125rem;
+  white-space: pre-wrap;
+}
+
+.highlight-word {
+  background: linear-gradient(120deg, #ffd700 0%, #ffb347 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+}
