@@ -1,25 +1,37 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import type { SavedStory } from "./api/stories/route";
 
-const STORY_TYPES = [
-  { value: "original", label: "Poveste originală", emoji: "✨" },
-  { value: "cei-3-purcelusi", label: "Cei Trei Purceluși", emoji: "🐷" },
-  { value: "alba-ca-zapada", label: "Alba ca Zăpada", emoji: "🍎" },
-  { value: "scufita-rosie", label: "Scufița Roșie", emoji: "🧣" },
-  { value: "cenusareasa", label: "Cenușăreasa", emoji: "👠" },
-  { value: "frumoasa-adormita", label: "Frumoasa Adormită", emoji: "👸" },
-  { value: "hansel-si-gretel", label: "Hansel și Gretel", emoji: "🏠" },
-  { value: "motanul-incaltat", label: "Motanul Încălțat", emoji: "🐈" },
-];
+const STORIES_KEY = "david_stories";
+const PAGE_SIZE = 20;
+const MAX_STORIES = 200;
+
+interface SavedStory {
+  id: string;
+  title: string;
+  text: string;
+  names: string[];
+  createdAt: string;
+  customPrompt?: string;
+}
+
+function getLocalStories(): SavedStory[] {
+  try { return JSON.parse(localStorage.getItem(STORIES_KEY) || "[]"); }
+  catch { return []; }
+}
+function addLocalStory(s: SavedStory) {
+  const updated = [s, ...getLocalStories()].slice(0, MAX_STORIES);
+  localStorage.setItem(STORIES_KEY, JSON.stringify(updated));
+}
+function removeLocalStory(id: string) {
+  localStorage.setItem(STORIES_KEY, JSON.stringify(getLocalStories().filter((s) => s.id !== id)));
+}
 
 type SpeechState = "idle" | "speaking" | "paused";
 
 export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [names, setNames] = useState<string[]>(["", ""]);
-  const [storyType, setStoryType] = useState("original");
   const [customPrompt, setCustomPrompt] = useState("");
   const [story, setStory] = useState("");
   const [storyTitle, setStoryTitle] = useState("");
@@ -80,28 +92,25 @@ export default function Home() {
   }, [story]);
 
   const loadStories = (page: number) => {
-    setStoriesLoading(true);
-    fetch(`/api/stories?page=${page}`)
-      .then((r) => r.json())
-      .then((data: { stories: SavedStory[]; total: number; pages: number }) => {
-        setSavedStories(data.stories);
-        setStoriesTotal(data.total);
-        setStoriesPages(data.pages);
-        setStoriesPage(page);
-      })
-      .catch(() => {})
-      .finally(() => setStoriesLoading(false));
+    const all = getLocalStories();
+    setSavedStories(all.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+    setStoriesTotal(all.length);
+    setStoriesPages(Math.ceil(all.length / PAGE_SIZE) || 1);
+    setStoriesPage(page);
   };
 
-  const saveStoryToHistory = (text: string, title: string, isAI: boolean) => {
+  const saveStoryToHistory = (text: string, title: string) => {
     const filteredNames = names.filter((n) => n.trim());
-    fetch("/api/stories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, title, names: filteredNames, storyType, isAI, customPrompt }),
-    })
-      .then(() => loadStories(0))
-      .catch(() => {});
+    const entry: SavedStory = {
+      id: crypto.randomUUID(),
+      title,
+      text,
+      names: filteredNames,
+      createdAt: new Date().toISOString(),
+      customPrompt: customPrompt || undefined,
+    };
+    addLocalStory(entry);
+    loadStories(0);
   };
 
   const loadSavedStory = (s: SavedStory) => {
@@ -114,9 +123,8 @@ export default function Home() {
   };
 
   const deleteSavedStory = (id: string) => {
-    fetch(`/api/stories?id=${id}`, { method: "DELETE" })
-      .then(() => loadStories(storiesPage))
-      .catch(() => {});
+    removeLocalStory(id);
+    loadStories(storiesPage);
   };
 
 
@@ -167,7 +175,7 @@ const handleNameChange = (index: number, value: string) => {
       const res = await fetch("/api/generate-story", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ names: filteredNames, storyType, customPrompt, apiKey }),
+        body: JSON.stringify({ names: filteredNames, customPrompt, apiKey }),
       });
 
       const data = await res.json();
@@ -179,7 +187,7 @@ const handleNameChange = (index: number, value: string) => {
       setStoryTitle(data.title || "");
       setStoryCollapsed(false);
       setActiveStoryId(null);
-      saveStoryToHistory(data.story, data.title || "", true);
+      saveStoryToHistory(data.story, data.title || "");
       setTimeout(() => storyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "A apărut o eroare.");
@@ -291,7 +299,6 @@ const handleNameChange = (index: number, value: string) => {
     setSpeechState("speaking");
   };
 
-  const selectedType = STORY_TYPES.find((t) => t.value === storyType);
   const filteredNames = names.filter((n) => n.trim());
 
   return (
@@ -401,46 +408,6 @@ const handleNameChange = (index: number, value: string) => {
           )}
         </div>
 
-        {/* Story type */}
-        <div style={cardStyle}>
-          <h2 style={cardTitleStyle}>📚 Tipul poveștii</h2>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 8,
-            }}
-          >
-            {STORY_TYPES.map((type) => {
-              const active = storyType === type.value;
-              return (
-                <button
-                  key={type.value}
-                  onClick={() => setStoryType(type.value)}
-                  style={{
-                    padding: isMobile ? "8px 10px" : "10px 12px",
-                    minHeight: 44,
-                    borderRadius: 14,
-                    border: `2px solid ${active ? "#e07b54" : "#f5deb3"}`,
-                    background: active
-                      ? "linear-gradient(135deg, #f5a623, #e07b54)"
-                      : "#fffdf8",
-                    color: active ? "white" : "#8B4513",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: isMobile ? "0.8rem" : "0.875rem",
-                    fontWeight: 500,
-                    boxShadow: active ? "0 4px 12px rgba(224,123,84,0.35)" : "none",
-                  }}
-                  type="button"
-                >
-                  <span>{type.emoji} {type.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         {/* Custom prompt */}
         <div style={cardStyle}>
           <h2 style={{ ...cardTitleStyle, marginBottom: 4 }}>
@@ -489,9 +456,7 @@ const handleNameChange = (index: number, value: string) => {
         >
           {loading
             ? "⏳ Se creează povestea…"
-            : `✨ Creează povestea ${selectedType?.emoji || ""} cu ${
-                filteredNames.join(" și ") || "personajele"
-              }`}
+            : `✨ Creează povestea cu ${filteredNames.join(" și ") || "personajele"}`}
         </button>
 
         {/* Error */}
@@ -722,7 +687,6 @@ const handleNameChange = (index: number, value: string) => {
                       const isActive = s.id === activeStoryId;
                       const date = new Date(s.createdAt).toLocaleDateString("ro-RO", { day: "numeric", month: "short", year: "numeric" });
                       const hour = new Date(s.createdAt).toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" });
-                      const storyLabel = STORY_TYPES.find((t) => t.value === s.storyType);
                       return (
                         <div
                           key={s.id}
@@ -742,15 +706,9 @@ const handleNameChange = (index: number, value: string) => {
                             </div>
                             <div style={{ fontSize: "0.78rem", color: "#b87333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
                               {s.names.join(", ")}
-                              {storyLabel && <span style={{ marginLeft: 5 }}>{storyLabel.emoji} {storyLabel.label}</span>}
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
+                            <div style={{ marginTop: 3 }}>
                               <span style={{ fontSize: "0.72rem", color: "#a07040" }}>{date} · {hour}</span>
-                              {s.isAI && (
-                                <span style={{ fontSize: "0.68rem", background: "#e8f5e9", color: "#2e7d32", border: "1px solid #a5d6a7", borderRadius: 6, padding: "1px 6px", fontWeight: 700 }}>
-                                  ✨ AI
-                                </span>
-                              )}
                             </div>
                           </div>
                           <button
