@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { generateLocalStory, createTemplateFromStory } from "./lib/localStoryGenerator";
 import type { SavedStory } from "./api/stories/route";
 
 const STORY_TYPES = [
@@ -16,12 +15,9 @@ const STORY_TYPES = [
 ];
 
 type SpeechState = "idle" | "speaking" | "paused";
-type GenerationMode = "local" | "openai";
 
 export default function Home() {
-  const [mode, setMode] = useState<GenerationMode>("local");
   const [apiKey, setApiKey] = useState("");
-  const [showApiSection, setShowApiSection] = useState(false);
   const [names, setNames] = useState<string[]>(["", ""]);
   const [storyType, setStoryType] = useState("original");
   const [customPrompt, setCustomPrompt] = useState("");
@@ -29,11 +25,6 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [speechState, setSpeechState] = useState<SpeechState>("idle");
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [openAiKeySaved, setOpenAiKeySaved] = useState(false);
-  const [aiEnhancedTypes, setAiEnhancedTypes] = useState<Set<string>>(new Set());
-  const [usedAiTemplate, setUsedAiTemplate] = useState(false);
-  const [aiTemplates, setAiTemplates] = useState<Record<string, string>>({});
   const [ttsLoading, setTtsLoading] = useState(false);
   const [envKeys, setEnvKeys] = useState({ openai: false, elevenlabs: false });
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -48,23 +39,12 @@ export default function Home() {
   const storyRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Încarcă configurația salvată (chei API) și template-urile AI la startup
   useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
-      .then((cfg: { elevenLabsKey?: string; openAiKey?: string; hasEnvOpenAi?: boolean; hasEnvElevenLabs?: boolean }) => {
+      .then((cfg: { openAiKey?: string; hasEnvOpenAi?: boolean }) => {
         if (cfg.openAiKey) setApiKey(cfg.openAiKey);
-        const hasOpenAi = !!cfg.hasEnvOpenAi || !!cfg.openAiKey;
         setEnvKeys({ openai: !!cfg.hasEnvOpenAi, elevenlabs: false });
-        setMode(hasOpenAi ? "openai" : "local");
-      })
-      .catch(() => {});
-
-    fetch("/api/templates")
-      .then((r) => r.json())
-      .then((data: Record<string, string>) => {
-        setAiTemplates(data);
-        setAiEnhancedTypes(new Set(Object.keys(data)));
       })
       .catch(() => {});
 
@@ -105,7 +85,6 @@ export default function Home() {
     stopSpeech();
     setStory(s.text);
     setActiveStoryId(s.id);
-    setUsedAiTemplate(false);
     setTimeout(() => storyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   };
 
@@ -115,19 +94,6 @@ export default function Home() {
       .catch(() => {});
   };
 
-  const saveOpenAiKey = async () => {
-    try {
-      await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openAiKey: apiKey.trim() }),
-      });
-      setOpenAiKeySaved(true);
-      setTimeout(() => setOpenAiKeySaved(false), 2500);
-    } catch {
-      // silently ignore
-    }
-  };
 
 const handleNameChange = (index: number, value: string) => {
     const updated = [...names];
@@ -163,8 +129,8 @@ const handleNameChange = (index: number, value: string) => {
       setError("Te rog introdu cel puțin un nume!");
       return;
     }
-    if (mode === "openai" && !apiKey.trim() && !envKeys.openai) {
-      setError("Te rog introdu cheia ta API OpenAI sau folosește generarea locală!");
+    if (!apiKey.trim() && !envKeys.openai) {
+      setError("Cheia API OpenAI nu este configurată. Adaugă-o în variabilele de mediu ale serverului.");
       return;
     }
 
@@ -175,49 +141,21 @@ const handleNameChange = (index: number, value: string) => {
     stopSpeech();
 
     try {
-      if (mode === "local") {
-        // Generate story directly in the browser – no API needed
-        const wasEnhanced = !!aiTemplates[storyType];
-        const generated = generateLocalStory(filteredNames, storyType, customPrompt, aiTemplates);
-        setStory(generated);
-        setUsedAiTemplate(wasEnhanced);
-        setActiveStoryId(null);
-        saveStoryToHistory(generated, wasEnhanced);
-      } else {
-        const res = await fetch("/api/generate-story", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            names: filteredNames,
-            storyType,
-            customPrompt,
-            apiKey,
-          }),
-        });
+      const res = await fetch("/api/generate-story", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names: filteredNames, storyType, customPrompt, apiKey }),
+      });
 
-        const data = await res.json();
-        if (!res.ok) {
-          setErrorCode(data.code || "UNKNOWN");
-          throw new Error(data.error || "Eroare la generare");
-        }
-        setStory(data.story);
-        setUsedAiTemplate(false);
-        setActiveStoryId(null);
-        saveStoryToHistory(data.story, true);
-        // Salvează template-ul AI server-side (disponibil pentru toți utilizatorii)
-        const template = createTemplateFromStory(data.story, filteredNames);
-        fetch("/api/templates", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ storyType, template }),
-        }).then(() => {
-          setAiTemplates((prev) => ({ ...prev, [storyType]: template }));
-          setAiEnhancedTypes((prev) => new Set([...prev, storyType]));
-        }).catch(() => {/* ignorat - template-ul nu s-a salvat, se va încerca data viitoare */});
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorCode(data.code || "UNKNOWN");
+        throw new Error(data.error || "Eroare la generare");
       }
-      setTimeout(() => {
-        storyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 200);
+      setStory(data.story);
+      setActiveStoryId(null);
+      saveStoryToHistory(data.story, true);
+      setTimeout(() => storyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "A apărut o eroare.");
     } finally {
@@ -441,20 +379,7 @@ const handleNameChange = (index: number, value: string) => {
                   }}
                   type="button"
                 >
-                  <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
-                    <span>{type.emoji} {type.label}</span>
-                    {aiEnhancedTypes.has(type.value) && (
-                      <span style={{
-                        fontSize: "0.62rem",
-                        background: active ? "rgba(255,255,255,0.3)" : "#f5a623",
-                        color: active ? "white" : "white",
-                        borderRadius: 6,
-                        padding: "1px 5px",
-                        fontWeight: 700,
-                        flexShrink: 0,
-                      }}>✨ AI</span>
-                    )}
-                  </span>
+                  <span>{type.emoji} {type.label}</span>
                 </button>
               );
             })}
@@ -483,19 +408,6 @@ const handleNameChange = (index: number, value: string) => {
               boxSizing: "border-box",
             }}
           />
-        </div>
-
-        {/* Indicator status AI */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end", marginBottom: -6 }}>
-          <span style={{
-            width: 8, height: 8, borderRadius: "50%",
-            background: (envKeys.openai || apiKey.trim()) ? "#4caf50" : "#bdbdbd",
-            display: "inline-block",
-            boxShadow: (envKeys.openai || apiKey.trim()) ? "0 0 0 3px rgba(76,175,80,0.2)" : "none",
-          }} />
-          <span style={{ fontSize: "0.72rem", color: (envKeys.openai || apiKey.trim()) ? "#2e7d32" : "#9e9e9e", fontWeight: 500 }}>
-            {(envKeys.openai || apiKey.trim()) ? "AI activ" : "Mod local"}
-          </span>
         </div>
 
         {/* Generate button */}
@@ -577,21 +489,6 @@ const handleNameChange = (index: number, value: string) => {
               boxShadow: "0 8px 32px rgba(139,69,19,0.08)",
             }}
           >
-            {/* Indicator îmbunătățit AI */}
-            {usedAiTemplate && mode === "local" && (
-              <div style={{
-                background: "linear-gradient(135deg, #fff8e7, #fef3cc)",
-                border: "1.5px solid #f5a623",
-                borderRadius: 12,
-                padding: "8px 14px",
-                fontSize: "0.8rem",
-                color: "#7a5c00",
-                marginBottom: 16,
-                textAlign: "center",
-              }}>
-                ✨ Poveste generată cu template îmbunătățit de AI
-              </div>
-            )}
 
             {/* TTS controls */}
             <div
