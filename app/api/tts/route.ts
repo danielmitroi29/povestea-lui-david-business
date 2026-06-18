@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
-const VOICE    = "ro-RO-AlinaNeural";
-const MAX_CHARS = 9500;
+const VOICE     = "ro-RO-AlinaNeural";
+const MAX_CHARS  = 9500;
+const RATE       = "+18%";   // mai rapid
+const PITCH      = "+8%";    // mai intonat
+
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,8 +22,11 @@ export async function POST(req: NextRequest) {
     const tts = new MsEdgeTTS();
     await tts.setMetadata(VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
 
+    // SSML cu prosody pentru viteză și intonație
+    const ssml = `<prosody rate="${RATE}" pitch="${PITCH}">${escapeXml(truncated)}</prosody>`;
+
     const chunks: Buffer[] = [];
-    const { audioStream } = tts.toStream(truncated);
+    const { audioStream } = tts.toStream(ssml);
 
     await new Promise<void>((resolve, reject) => {
       audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
