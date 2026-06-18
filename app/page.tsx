@@ -302,38 +302,43 @@ const handleNameChange = (index: number, value: string) => {
   const filteredNames = names.filter((n) => n.trim());
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "linear-gradient(135deg, #fff9f0 0%, #fef3e2 50%, #fff0e6 100%)",
-      }}
-    >
+    <div style={{ minHeight: "100vh", position: "relative", zIndex: 1 }}>
       {/* Header */}
-      <header style={{ textAlign: "center", padding: isMobile ? "24px 16px 12px" : "40px 16px 20px" }}>
-        <div style={{ fontSize: isMobile ? 48 : 64, marginBottom: 8 }}>📖</div>
+      <header style={{ textAlign: "center", padding: isMobile ? "32px 16px 16px" : "52px 16px 24px" }}>
+        <div
+          className="float-animation"
+          style={{ fontSize: isMobile ? 52 : 72, marginBottom: 10, filter: "drop-shadow(0 0 24px rgba(167,139,250,0.6))" }}
+        >
+          ✨
+        </div>
         <h1
+          className="glow-text"
           style={{
-            fontSize: isMobile ? "1.8rem" : "clamp(2rem, 5vw, 3rem)",
-            fontWeight: 800,
-            color: "#8B4513",
-            fontFamily: "Georgia, serif",
+            fontSize: isMobile ? "2rem" : "clamp(2.2rem, 5vw, 3.2rem)",
+            fontWeight: 900,
             margin: 0,
+            letterSpacing: "-0.02em",
           }}
         >
           Povestea lui David
         </h1>
-        <p style={{ color: "#A0522D", marginTop: 6, fontSize: isMobile ? "0.9rem" : "1.05rem" }}>
-          Povești personalizate în română · ~5 min
+        <p style={{ color: "rgba(167,139,250,0.7)", marginTop: 8, fontSize: isMobile ? "0.85rem" : "0.95rem", letterSpacing: "0.04em" }}>
+          Povești magice generate cu AI · în română
         </p>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, padding: "4px 12px", borderRadius: 20, background: (envKeys.openai || apiKey.trim()) ? "rgba(76,175,80,0.12)" : "rgba(180,180,180,0.15)" }}>
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 6, marginTop: 12,
+          padding: "5px 14px", borderRadius: 50,
+          background: (envKeys.openai || apiKey.trim()) ? "rgba(16,185,129,0.12)" : "rgba(100,100,120,0.15)",
+          border: `1px solid ${(envKeys.openai || apiKey.trim()) ? "rgba(16,185,129,0.3)" : "rgba(120,120,140,0.2)"}`,
+        }}>
           <span style={{
-            width: 8, height: 8, borderRadius: "50%",
-            background: (envKeys.openai || apiKey.trim()) ? "#4caf50" : "#bdbdbd",
+            width: 7, height: 7, borderRadius: "50%",
+            background: (envKeys.openai || apiKey.trim()) ? "#10b981" : "#6b7280",
             display: "inline-block",
-            boxShadow: (envKeys.openai || apiKey.trim()) ? "0 0 0 3px rgba(76,175,80,0.25)" : "none",
+            boxShadow: (envKeys.openai || apiKey.trim()) ? "0 0 8px #10b981" : "none",
           }} />
-          <span style={{ fontSize: "0.75rem", fontWeight: 600, color: (envKeys.openai || apiKey.trim()) ? "#2e7d32" : "#9e9e9e" }}>
-            {(envKeys.openai || apiKey.trim()) ? "AI activ" : "AI inactiv"}
+          <span style={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em", color: (envKeys.openai || apiKey.trim()) ? "#34d399" : "#9ca3af" }}>
+            {(envKeys.openai || apiKey.trim()) ? "AI ACTIV" : "AI INACTIV"}
           </span>
         </div>
       </header>
@@ -373,7 +378,7 @@ const handleNameChange = (index: number, value: string) => {
                       width: 32,
                       height: 32,
                       borderRadius: "50%",
-                      background: "#e07b54",
+                      background: "rgba(220,38,38,0.6)",
                       color: "white",
                       border: "none",
                       cursor: "pointer",
@@ -395,9 +400,9 @@ const handleNameChange = (index: number, value: string) => {
                 marginTop: 10,
                 padding: "6px 16px",
                 borderRadius: 12,
-                border: "2px dashed #d2a679",
+                border: "1.5px dashed rgba(167,139,250,0.4)",
                 background: "transparent",
-                color: "#A0522D",
+                color: "#a78bfa",
                 cursor: "pointer",
                 fontSize: "0.875rem",
               }}
@@ -414,7 +419,7 @@ const handleNameChange = (index: number, value: string) => {
             💭 Detalii suplimentare{" "}
             <span style={{ fontWeight: 400, fontSize: "0.85rem" }}>(opțional)</span>
           </h2>
-          <p style={{ color: "#b87333", fontSize: "0.78rem", marginBottom: 8 }}>
+          <p style={{ color: "rgba(167,139,250,0.6)", fontSize: "0.78rem", marginBottom: 8 }}>
             Ex: &quot;David iubește dinozaurii&quot;, &quot;Maria are un cățel
             alb&quot;, &quot;aventură în pădure magică&quot;
           </p>
@@ -438,19 +443,20 @@ const handleNameChange = (index: number, value: string) => {
           disabled={loading}
           style={{
             width: "100%",
-            padding: isMobile ? "14px 12px" : "16px",
-            minHeight: 52,
-            borderRadius: 24,
+            padding: isMobile ? "15px 12px" : "17px",
+            minHeight: 54,
+            borderRadius: 50,
             border: "none",
             background: loading
-              ? "#d2a679"
-              : "linear-gradient(135deg, #f5a623, #e07b54)",
+              ? "rgba(124,58,237,0.3)"
+              : "linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #6d28d9 100%)",
             color: "white",
-            fontSize: isMobile ? "1rem" : "1.15rem",
-            fontWeight: 700,
+            fontSize: isMobile ? "1rem" : "1.1rem",
+            fontWeight: 800,
             cursor: loading ? "not-allowed" : "pointer",
-            boxShadow: loading ? "none" : "0 6px 24px rgba(224,123,84,0.45)",
+            boxShadow: loading ? "none" : "0 6px 30px rgba(124,58,237,0.5), 0 2px 8px rgba(0,0,0,0.3)",
             transition: "all 0.2s",
+            letterSpacing: "0.02em",
           }}
           type="button"
         >
@@ -502,10 +508,12 @@ const handleNameChange = (index: number, value: string) => {
           <div
             ref={storyRef}
             style={{
-              background: "rgba(255,255,255,0.97)",
-              border: "2px solid #f5deb3",
+              background: "rgba(124,58,237,0.07)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              border: "1px solid rgba(167,139,250,0.35)",
               borderRadius: 20,
-              boxShadow: "0 8px 32px rgba(139,69,19,0.08)",
+              boxShadow: "0 8px 40px rgba(124,58,237,0.2), inset 0 1px 0 rgba(255,255,255,0.08)",
               overflow: "hidden",
             }}
           >
@@ -516,19 +524,18 @@ const handleNameChange = (index: number, value: string) => {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: isMobile ? "12px 16px" : "14px 28px",
+                padding: isMobile ? "12px 16px" : "14px 24px",
                 cursor: "pointer",
                 userSelect: "none",
-                background: storyCollapsed ? "#fff9f0" : "transparent",
-                borderBottom: storyCollapsed ? "none" : "1px solid #f5deb3",
+                borderBottom: storyCollapsed ? "none" : "1px solid rgba(167,139,250,0.2)",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                <span style={{ fontSize: "1.1rem" }}>📖</span>
+                <span style={{ fontSize: "1.1rem" }}>✨</span>
                 <span style={{
                   fontWeight: 700,
                   fontSize: isMobile ? "0.92rem" : "1rem",
-                  color: "#5c3010",
+                  color: "#e0d0ff",
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -537,8 +544,8 @@ const handleNameChange = (index: number, value: string) => {
                 </span>
               </div>
               <span style={{
-                fontSize: "1.1rem",
-                color: "#b87333",
+                fontSize: "1rem",
+                color: "#a78bfa",
                 flexShrink: 0,
                 marginLeft: 8,
                 transition: "transform 0.2s",
@@ -563,43 +570,31 @@ const handleNameChange = (index: number, value: string) => {
               }}
             >
               {speechState === "idle" && ttsLoading && (
-                <button style={{ ...ttsBtnStyle("#27ae60"), opacity: 0.6, cursor: "not-allowed" }} disabled type="button">
+                <button style={{ ...ttsBtnStyle("rgba(16,185,129,0.3)"), opacity: 0.7, cursor: "not-allowed" }} disabled type="button">
                   ⏳ Se pregătește vocea…
                 </button>
               )}
               {speechState === "idle" && !ttsLoading && (
                 <button
                   onClick={startSpeech}
-                  style={ttsBtnStyle("#27ae60")}
+                  style={ttsBtnStyle("linear-gradient(135deg,#059669,#10b981)")}
                   type="button"
                 >
                   🎙️ Ascultă (Alina Neural)
                 </button>
               )}
               {speechState === "speaking" && (
-                <button
-                  onClick={pauseSpeech}
-                  style={ttsBtnStyle("#f39c12")}
-                  type="button"
-                >
+                <button onClick={pauseSpeech} style={ttsBtnStyle("linear-gradient(135deg,#d97706,#f59e0b)")} type="button">
                   ⏸️ Pauză
                 </button>
               )}
               {speechState === "paused" && (
-                <button
-                  onClick={resumeSpeech}
-                  style={ttsBtnStyle("#27ae60")}
-                  type="button"
-                >
+                <button onClick={resumeSpeech} style={ttsBtnStyle("linear-gradient(135deg,#059669,#10b981)")} type="button">
                   ▶️ Continuă
                 </button>
               )}
               {speechState !== "idle" && (
-                <button
-                  onClick={stopSpeech}
-                  style={ttsBtnStyle("#e74c3c")}
-                  type="button"
-                >
+                <button onClick={stopSpeech} style={ttsBtnStyle("linear-gradient(135deg,#dc2626,#ef4444)")} type="button">
                   ⏹️ Stop
                 </button>
               )}
@@ -607,9 +602,10 @@ const handleNameChange = (index: number, value: string) => {
                 onClick={generateStory}
                 disabled={loading}
                 style={{
-                  ...ttsBtnStyle("#8B4513"),
-                  background: "#f5deb3",
-                  color: "#8B4513",
+                  ...ttsBtnStyle("rgba(167,139,250,0.15)"),
+                  border: "1px solid rgba(167,139,250,0.35)",
+                  color: "#c4b5fd",
+                  boxShadow: "none",
                 }}
                 type="button"
               >
@@ -633,7 +629,7 @@ const handleNameChange = (index: number, value: string) => {
                     style={{
                       width: 4,
                       height: h,
-                      background: "#f5a623",
+                      background: "#a78bfa",
                       borderRadius: 2,
                       animation: `float ${0.4 + i * 0.08}s ease-in-out infinite alternate`,
                     }}
@@ -647,7 +643,7 @@ const handleNameChange = (index: number, value: string) => {
               style={{
                 lineHeight: 1.85,
                 fontSize: isMobile ? "1rem" : "1.1rem",
-                color: "#2d1b00",
+                color: "#ede9fe",
                 whiteSpace: "pre-wrap",
                 fontFamily: "Georgia, serif",
               }}
@@ -672,15 +668,15 @@ const handleNameChange = (index: number, value: string) => {
               style={{ background: "none", border: "none", cursor: "pointer", width: "100%", textAlign: "left", padding: 0 }}
             >
               <h2 style={{ ...cardTitleStyle, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span>📚 Povești salvate <span style={{ fontWeight: 400, fontSize: "0.85rem", color: "#b87333" }}>({storiesTotal})</span></span>
-                <span style={{ fontSize: "0.8rem", color: "#b87333" }}>{showStoriesSection ? "▲ Ascunde" : "▼ Arată"}</span>
+                <span>📚 Povești salvate <span style={{ fontWeight: 400, fontSize: "0.85rem", color: "rgba(167,139,250,0.6)" }}>({storiesTotal})</span></span>
+                <span style={{ fontSize: "0.8rem", color: "#a78bfa" }}>{showStoriesSection ? "▲ Ascunde" : "▼ Arată"}</span>
               </h2>
             </button>
 
             {showStoriesSection && (
               <>
                 {storiesLoading ? (
-                  <div style={{ textAlign: "center", color: "#b87333", padding: 16 }}>Se încarcă…</div>
+                  <div style={{ textAlign: "center", color: "#a78bfa", padding: 16 }}>Se încarcă…</div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
                     {savedStories.map((s) => {
@@ -691,24 +687,24 @@ const handleNameChange = (index: number, value: string) => {
                         <div
                           key={s.id}
                           style={{
-                            border: isActive ? "2px solid #f5a623" : "1.5px solid #f5deb3",
+                            border: isActive ? "1px solid rgba(167,139,250,0.6)" : "1px solid rgba(167,139,250,0.15)",
                             borderRadius: 14,
                             padding: "12px 14px",
-                            background: isActive ? "#fffbf0" : "#fffdf8",
+                            background: isActive ? "rgba(124,58,237,0.15)" : "rgba(255,255,255,0.03)",
                             display: "flex",
                             alignItems: "center",
                             gap: 10,
                           }}
                         >
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#5c3010", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            <div style={{ fontWeight: 700, fontSize: "0.92rem", color: "#e0d0ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                               {s.title || s.names.join(", ")}
                             </div>
-                            <div style={{ fontSize: "0.78rem", color: "#b87333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
+                            <div style={{ fontSize: "0.75rem", color: "rgba(167,139,250,0.65)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
                               {s.names.join(", ")}
                             </div>
-                            <div style={{ marginTop: 3 }}>
-                              <span style={{ fontSize: "0.72rem", color: "#a07040" }}>{date} · {hour}</span>
+                            <div style={{ marginTop: 2 }}>
+                              <span style={{ fontSize: "0.68rem", color: "rgba(167,139,250,0.45)" }}>{date} · {hour}</span>
                             </div>
                           </div>
                           <button
@@ -716,14 +712,14 @@ const handleNameChange = (index: number, value: string) => {
                             onClick={() => loadSavedStory(s)}
                             title="Încarcă și ascultă"
                             style={{
-                              background: isActive ? "#f5a623" : "linear-gradient(135deg, #f5a623, #e07b54)",
-                              color: "white",
-                              border: "none",
+                              background: isActive ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "rgba(124,58,237,0.25)",
+                              color: isActive ? "white" : "#c4b5fd",
+                              border: `1px solid ${isActive ? "transparent" : "rgba(167,139,250,0.3)"}`,
                               borderRadius: 10,
                               padding: "7px 12px",
                               cursor: "pointer",
                               fontWeight: 700,
-                              fontSize: "0.82rem",
+                              fontSize: "0.8rem",
                               flexShrink: 0,
                             }}
                           >
@@ -733,7 +729,7 @@ const handleNameChange = (index: number, value: string) => {
                             type="button"
                             onClick={() => deleteSavedStory(s.id)}
                             title="Șterge"
-                            style={{ background: "none", border: "none", cursor: "pointer", color: "#ccc", fontSize: "1rem", flexShrink: 0, padding: "4px" }}
+                            style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(167,139,250,0.35)", fontSize: "1rem", flexShrink: 0, padding: "4px" }}
                           >
                             ✕
                           </button>
@@ -754,7 +750,7 @@ const handleNameChange = (index: number, value: string) => {
                     >
                       ← Anterior
                     </button>
-                    <span style={{ color: "#8B4513", fontSize: "0.85rem" }}>
+                    <span style={{ color: "#a78bfa", fontSize: "0.85rem" }}>
                       Pagina {storiesPage + 1} din {storiesPages}
                     </span>
                     <button
@@ -778,11 +774,12 @@ const handleNameChange = (index: number, value: string) => {
         style={{
           textAlign: "center",
           padding: "16px",
-          color: "#b87333",
-          fontSize: "0.85rem",
+          color: "rgba(167,139,250,0.4)",
+          fontSize: "0.8rem",
+          letterSpacing: "0.04em",
         }}
       >
-        Cu dragoste pentru copiii voștri 💛 · Povești în română · ~5 minute
+        Cu dragoste pentru David ✨ · Povești magice în română
       </footer>
     </div>
   );
@@ -791,50 +788,58 @@ const handleNameChange = (index: number, value: string) => {
 // ── Shared micro-styles ──────────────────────────────────────────────────────
 
 const cardStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.85)",
-  border: "2px solid #f5deb3",
+  background: "rgba(255,255,255,0.05)",
+  backdropFilter: "blur(20px)",
+  WebkitBackdropFilter: "blur(20px)",
+  border: "1px solid rgba(167,139,250,0.22)",
   borderRadius: 20,
-  padding: "16px",
-  boxShadow: "0 2px 12px rgba(139,69,19,0.06)",
+  padding: "18px",
+  boxShadow: "0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.07)",
+  transition: "border-color 0.2s",
 };
 
 const cardTitleStyle: React.CSSProperties = {
-  fontSize: "1rem",
+  fontSize: "0.88rem",
   fontWeight: 700,
-  color: "#8B4513",
+  color: "#a78bfa",
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
   marginTop: 0,
   marginBottom: 12,
 };
 
 const inputStyle: React.CSSProperties = {
-  border: "1.5px solid #d2a679",
+  border: "1px solid rgba(167,139,250,0.3)",
   borderRadius: 12,
-  padding: "8px 14px",
+  padding: "10px 14px",
   fontSize: "0.95rem",
-  background: "#fffdf8",
+  background: "rgba(255,255,255,0.06)",
   outline: "none",
-  color: "#2d1b00",
+  color: "#f0e8ff",
   fontFamily: "inherit",
+  width: "100%",
 };
 
 const smallBtnStyle: React.CSSProperties = {
-  padding: "8px 12px",
+  padding: "8px 14px",
   borderRadius: 12,
-  border: "1.5px solid #d2a679",
-  background: "#f5deb3",
-  color: "#8B4513",
+  border: "1px solid rgba(167,139,250,0.35)",
+  background: "rgba(124,58,237,0.15)",
+  color: "#a78bfa",
   cursor: "pointer",
-  fontSize: "1rem",
+  fontSize: "0.9rem",
 };
 
-const ttsBtnStyle = (bg: string): React.CSSProperties => ({
-  padding: "10px 16px",
-  borderRadius: 20,
+const ttsBtnStyle = (color: string): React.CSSProperties => ({
+  padding: "11px 20px",
+  borderRadius: 50,
   border: "none",
-  background: bg,
+  background: color,
   color: "white",
   cursor: "pointer",
   fontSize: "0.88rem",
-  fontWeight: 600,
+  fontWeight: 700,
   minHeight: 44,
+  letterSpacing: "0.02em",
+  boxShadow: `0 4px 16px ${color}55`,
 });
