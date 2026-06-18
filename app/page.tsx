@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { generateLocalStory, createTemplateFromStory } from "./lib/localStoryGenerator";
+import type { SavedStory } from "./api/stories/route";
 
 const STORY_TYPES = [
   { value: "original", label: "Poveste originală", emoji: "✨" },
@@ -40,6 +41,13 @@ export default function Home() {
   const [ttsLoading, setTtsLoading] = useState(false);
   const [envKeys, setEnvKeys] = useState({ openai: false, elevenlabs: false });
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [savedStories, setSavedStories] = useState<SavedStory[]>([]);
+  const [storiesPage, setStoriesPage] = useState(0);
+  const [storiesTotal, setStoriesTotal] = useState(0);
+  const [storiesPages, setStoriesPages] = useState(0);
+  const [storiesLoading, setStoriesLoading] = useState(false);
+  const [showStoriesSection, setShowStoriesSection] = useState(false);
+  const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
   const storyRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -61,7 +69,48 @@ export default function Home() {
         setAiEnhancedTypes(new Set(Object.keys(data)));
       })
       .catch(() => {});
+
+    loadStories(0);
   }, []);
+
+  const loadStories = (page: number) => {
+    setStoriesLoading(true);
+    fetch(`/api/stories?page=${page}`)
+      .then((r) => r.json())
+      .then((data: { stories: SavedStory[]; total: number; pages: number }) => {
+        setSavedStories(data.stories);
+        setStoriesTotal(data.total);
+        setStoriesPages(data.pages);
+        setStoriesPage(page);
+      })
+      .catch(() => {})
+      .finally(() => setStoriesLoading(false));
+  };
+
+  const saveStoryToHistory = (text: string, isAI: boolean) => {
+    const filteredNames = names.filter((n) => n.trim());
+    fetch("/api/stories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, names: filteredNames, storyType, isAI, customPrompt }),
+    })
+      .then(() => loadStories(0))
+      .catch(() => {});
+  };
+
+  const loadSavedStory = (s: SavedStory) => {
+    stopSpeech();
+    setStory(s.text);
+    setActiveStoryId(s.id);
+    setUsedAiTemplate(false);
+    setTimeout(() => storyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+  };
+
+  const deleteSavedStory = (id: string) => {
+    fetch(`/api/stories?id=${id}`, { method: "DELETE" })
+      .then(() => loadStories(storiesPage))
+      .catch(() => {});
+  };
 
   const saveOpenAiKey = async () => {
     try {
@@ -143,6 +192,8 @@ export default function Home() {
         const generated = generateLocalStory(filteredNames, storyType, customPrompt, aiTemplates);
         setStory(generated);
         setUsedAiTemplate(wasEnhanced);
+        setActiveStoryId(null);
+        saveStoryToHistory(generated, wasEnhanced);
       } else {
         const res = await fetch("/api/generate-story", {
           method: "POST",
@@ -162,6 +213,8 @@ export default function Home() {
         }
         setStory(data.story);
         setUsedAiTemplate(false);
+        setActiveStoryId(null);
+        saveStoryToHistory(data.story, true);
         // Salvează template-ul AI server-side (disponibil pentru toți utilizatorii)
         const template = createTemplateFromStory(data.story, filteredNames);
         fetch("/api/templates", {
@@ -858,6 +911,125 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        {/* Povești Salvate */}
+        {storiesTotal > 0 && (
+          <div style={cardStyle}>
+            <button
+              type="button"
+              onClick={() => setShowStoriesSection((v) => !v)}
+              style={{ background: "none", border: "none", cursor: "pointer", width: "100%", textAlign: "left", padding: 0 }}
+            >
+              <h2 style={{ ...cardTitleStyle, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span>📚 Povești salvate <span style={{ fontWeight: 400, fontSize: "0.85rem", color: "#b87333" }}>({storiesTotal})</span></span>
+                <span style={{ fontSize: "0.8rem", color: "#b87333" }}>{showStoriesSection ? "▲ Ascunde" : "▼ Arată"}</span>
+              </h2>
+            </button>
+
+            {showStoriesSection && (
+              <>
+                {storiesLoading ? (
+                  <div style={{ textAlign: "center", color: "#b87333", padding: 16 }}>Se încarcă…</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                    {savedStories.map((s) => {
+                      const isActive = s.id === activeStoryId;
+                      const date = new Date(s.createdAt).toLocaleDateString("ro-RO", { day: "numeric", month: "short", year: "numeric" });
+                      const hour = new Date(s.createdAt).toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" });
+                      const storyLabel = STORY_TYPES.find((t) => t.value === s.storyType);
+                      return (
+                        <div
+                          key={s.id}
+                          style={{
+                            border: isActive ? "2px solid #f5a623" : "1.5px solid #f5deb3",
+                            borderRadius: 14,
+                            padding: "12px 14px",
+                            background: isActive ? "#fffbf0" : "#fffdf8",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, fontSize: "0.92rem", color: "#5c3010", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {s.names.join(", ")}
+                              {storyLabel && <span style={{ fontWeight: 400, color: "#b87333", marginLeft: 6 }}>{storyLabel.emoji} {storyLabel.label}</span>}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: "0.75rem", color: "#a07040" }}>{date} · {hour}</span>
+                              {s.isAI && (
+                                <span style={{ fontSize: "0.68rem", background: "#e8f5e9", color: "#2e7d32", border: "1px solid #a5d6a7", borderRadius: 6, padding: "1px 6px", fontWeight: 700 }}>
+                                  ✨ AI
+                                </span>
+                              )}
+                              {!s.isAI && (
+                                <span style={{ fontSize: "0.68rem", background: "#fff3e0", color: "#e65100", border: "1px solid #ffcc80", borderRadius: 6, padding: "1px 6px", fontWeight: 700 }}>
+                                  🏠 Local
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => loadSavedStory(s)}
+                            title="Încarcă și ascultă"
+                            style={{
+                              background: isActive ? "#f5a623" : "linear-gradient(135deg, #f5a623, #e07b54)",
+                              color: "white",
+                              border: "none",
+                              borderRadius: 10,
+                              padding: "7px 12px",
+                              cursor: "pointer",
+                              fontWeight: 700,
+                              fontSize: "0.82rem",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {isActive ? "✅ Activă" : "▶ Ascultă"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteSavedStory(s.id)}
+                            title="Șterge"
+                            style={{ background: "none", border: "none", cursor: "pointer", color: "#ccc", fontSize: "1rem", flexShrink: 0, padding: "4px" }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Paginare */}
+                {storiesPages > 1 && (
+                  <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginTop: 14 }}>
+                    <button
+                      type="button"
+                      disabled={storiesPage === 0}
+                      onClick={() => loadStories(storiesPage - 1)}
+                      style={{ ...smallBtnStyle, opacity: storiesPage === 0 ? 0.4 : 1 }}
+                    >
+                      ← Anterior
+                    </button>
+                    <span style={{ color: "#8B4513", fontSize: "0.85rem" }}>
+                      Pagina {storiesPage + 1} din {storiesPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={storiesPage >= storiesPages - 1}
+                      onClick={() => loadStories(storiesPage + 1)}
+                      style={{ ...smallBtnStyle, opacity: storiesPage >= storiesPages - 1 ? 0.4 : 1 }}
+                    >
+                      Următor →
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
       </main>
 
       <footer
