@@ -28,6 +28,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [speechState, setSpeechState] = useState<SpeechState>("idle");
   const [ttsLoading, setTtsLoading] = useState(false);
+  const [firstChunkB64, setFirstChunkB64] = useState<string | null>(null);
   const [envKeys, setEnvKeys] = useState({ openai: false, elevenlabs: false });
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -57,6 +58,26 @@ export default function Home() {
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
+
+  // Pre-fetch primul chunk imediat ce apare o poveste nouă
+  useEffect(() => {
+    if (!story) { setFirstChunkB64(null); return; }
+    setFirstChunkB64(null);
+    setTtsLoading(true);
+    const sentences = story.match(/[^.!?\n]+[.!?\n]+/g) ?? [story];
+    const firstText = sentences.slice(0, 4).join("").trim() || story;
+    let cancelled = false;
+    fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: firstText }),
+    })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled && d.audioContent) setFirstChunkB64(d.audioContent); })
+      .catch(() => { if (!cancelled) setFirstChunkB64(""); }) // "" = fallback browser TTS
+      .finally(() => { if (!cancelled) setTtsLoading(false); });
+    return () => { cancelled = true; };
+  }, [story]);
 
   const loadStories = (page: number) => {
     setStoriesLoading(true);
@@ -193,45 +214,26 @@ const handleNameChange = (index: number, value: string) => {
   }, []);
 
   const startSpeech = useCallback(async () => {
-    if (!story || typeof window === "undefined") return;
+    if (!story || firstChunkB64 === null) return;
     stopSpeech();
-    setTtsLoading(true);
 
-    // Generează un WAV de 200ms de tăcere în JS — deblochează <audio> pe iOS/Chrome
-    const makeSilentWav = (): string => {
-      const sr = 8000, ms = 200;
-      const n = Math.ceil(sr * ms / 1000);
-      const buf = new ArrayBuffer(44 + n);
-      const v = new DataView(buf);
-      const ws = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-      ws(0, "RIFF"); v.setUint32(4, 36 + n, true);
-      ws(8, "WAVE"); ws(12, "fmt ");
-      v.setUint32(16, 16, true); v.setUint16(20, 1, true);
-      v.setUint16(22, 1, true); v.setUint32(24, sr, true);
-      v.setUint32(28, sr, true); v.setUint16(32, 1, true);
-      v.setUint16(34, 8, true); ws(36, "data"); v.setUint32(40, n, true);
-      new Uint8Array(buf).fill(128, 44);
-      const arr = new Uint8Array(buf);
-      let b = "";
-      for (let i = 0; i < arr.length; i++) b += String.fromCharCode(arr[i]);
-      return "data:audio/wav;base64," + btoa(b);
-    };
+    // Dacă pre-fetch-ul a eșuat (firstChunkB64 === "") → browser TTS direct
+    if (firstChunkB64 === "") { fallbackBrowserTTS(story); return; }
 
-    // Crează <audio> și pornește tăcerea SINCRON în gestul utilizatorului → iOS deblocat
-    const audio = new Audio();
+    // Primul play este SINCRON în gestul utilizatorului — iOS/Chrome nu poate bloca
+    const audio = new Audio(`data:audio/mp3;base64,${firstChunkB64}`);
     audioRef.current = audio;
-    audio.src = makeSilentWav();
-    const unlockPromise = audio.play().catch(() => {});
+    setSpeechState("speaking");
+    audio.play().catch(() => { fallbackBrowserTTS(story); return; });
 
-    // Împarte în bucăți de ~4 propoziții
+    // Restul chunk-urilor se fetch-uiesc și redau async — sesiunea audio e deja activă
     const sentences = story.match(/[^.!?\n]+[.!?\n]+/g) ?? [story];
     const CHUNK_SIZE = 4;
-    const chunks: string[] = [];
+    const textChunks: string[] = [];
     for (let i = 0; i < sentences.length; i += CHUNK_SIZE) {
-      const chunk = sentences.slice(i, i + CHUNK_SIZE).join("").trim();
-      if (chunk) chunks.push(chunk);
+      const c = sentences.slice(i, i + CHUNK_SIZE).join("").trim();
+      if (c) textChunks.push(c);
     }
-    if (!chunks.length) chunks.push(story);
 
     const fetchB64 = async (text: string): Promise<string> => {
       const res = await fetch("/api/tts", {
@@ -240,49 +242,42 @@ const handleNameChange = (index: number, value: string) => {
         body: JSON.stringify({ text }),
       });
       const data = await res.json();
-      if (!res.ok || !data.audioContent) throw new Error(data.error || "Eroare TTS");
+      if (!res.ok || !data.audioContent) throw new Error("Eroare TTS");
       return data.audioContent as string;
     };
 
-    try {
-      // Fetch primul chunk în paralel cu redarea tăcerii de unlock
-      let currentB64 = await fetchB64(chunks[0]);
-      await unlockPromise; // asigurăm că unlock-ul s-a terminat
+    let current = audio;
+    let nextFetch = textChunks.length > 1 ? fetchB64(textChunks[1]) : null;
 
-      setTtsLoading(false);
-      setSpeechState("speaking");
+    for (let i = 1; i < textChunks.length; i++) {
+      // Așteaptă să termine chunk-ul curent
+      await new Promise<void>((resolve) => {
+        if (current.ended || !audioRef.current) { resolve(); return; }
+        current.onended = () => resolve();
+        current.onerror = () => resolve();
+      });
+      if (!audioRef.current) break;
 
-      // Pre-fetch chunk 1 imediat
-      let nextFetch: Promise<string> | null = chunks.length > 1 ? fetchB64(chunks[1]) : null;
-
-      for (let i = 0; i < chunks.length; i++) {
+      try {
+        const b64 = await (nextFetch as Promise<string>);
         if (!audioRef.current) break;
+        nextFetch = (i + 1 < textChunks.length) ? fetchB64(textChunks[i + 1]) : null;
 
-        // Pre-fetch chunk i+2 în timp ce redăm chunk i
-        const futureNext = (i + 2 < chunks.length) ? fetchB64(chunks[i + 2]) : null;
+        const next = new Audio(`data:audio/mp3;base64,${b64}`);
+        audioRef.current = next;
+        next.play().catch(() => {});
+        current = next;
+      } catch { break; }
+    }
 
-        audio.src = `data:audio/mp3;base64,${currentB64}`;
-        await new Promise<void>((resolve, reject) => {
-          audio.onended = () => resolve();
-          audio.onerror = () => reject(new Error("audio error"));
-          audio.play().catch(reject);
-        });
-
-        if (nextFetch) currentB64 = await nextFetch;
-        nextFetch = futureNext;
-      }
-
-      if (audioRef.current) {
+    // Marchează idle când ultimul chunk termină
+    if (audioRef.current === current) {
+      current.addEventListener("ended", () => {
         setSpeechState("idle");
         audioRef.current = null;
-      }
-    } catch {
-      audioRef.current = null;
-      fallbackBrowserTTS(story);
-    } finally {
-      setTtsLoading(false);
+      }, { once: true });
     }
-  }, [story, stopSpeech, fallbackBrowserTTS]);
+  }, [story, firstChunkB64, stopSpeech, fallbackBrowserTTS]);
 
   const pauseSpeech = () => {
     if (audioRef.current) audioRef.current.pause();
@@ -602,6 +597,11 @@ const handleNameChange = (index: number, value: string) => {
                 justifyContent: "center",
               }}
             >
+              {speechState === "idle" && ttsLoading && (
+                <button style={{ ...ttsBtnStyle("#27ae60"), opacity: 0.6, cursor: "not-allowed" }} disabled type="button">
+                  ⏳ Se pregătește vocea…
+                </button>
+              )}
               {speechState === "idle" && !ttsLoading && (
                 <button
                   onClick={startSpeech}
@@ -609,11 +609,6 @@ const handleNameChange = (index: number, value: string) => {
                   type="button"
                 >
                   🎙️ Ascultă (Alina Neural)
-                </button>
-              )}
-              {ttsLoading && (
-                <button style={{ ...ttsBtnStyle("#27ae60"), opacity: 0.7, cursor: "not-allowed" }} disabled type="button">
-                  ⏳ Se pregătește vocea…
                 </button>
               )}
               {speechState === "speaking" && (
