@@ -163,86 +163,64 @@ const handleNameChange = (index: number, value: string) => {
     }
   };
 
+  const browserTTS = useCallback((text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      setSpeechState("idle");
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "ro-RO";
+    utterance.rate = 1.1;
+    utterance.pitch = 1.1;
+    const trySpeak = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const roVoice = voices.find((v) => v.lang.startsWith("ro")) || voices[0];
+      if (roVoice) utterance.voice = roVoice;
+      utterance.onend = () => setSpeechState("idle");
+      utterance.onerror = () => setSpeechState("idle");
+      window.speechSynthesis.speak(utterance);
+      setSpeechState("speaking");
+    };
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      trySpeak();
+    } else {
+      window.speechSynthesis.addEventListener("voiceschanged", trySpeak, { once: true });
+      trySpeak();
+    }
+  }, []);
+
   const startSpeech = useCallback(async () => {
     if (!story) return;
     stopSpeech();
 
-    // Împarte povestea în bucăți după rânduri goale (paragrafe)
-    const chunks = story
-      .split(/\n\n+/)
-      .map((p) => p.trim())
-      .filter(Boolean);
-
-    // Grupează în max 4 bucăți egale ca să nu fie prea multe cereri
-    const GROUP = Math.ceil(chunks.length / 4);
-    const groups: string[] = [];
-    for (let i = 0; i < chunks.length; i += GROUP) {
-      groups.push(chunks.slice(i, i + GROUP).join("\n\n"));
-    }
-
-    const fetchChunk = async (text: string): Promise<string> => {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Eroare TTS");
-      return data.audioContent as string;
-    };
-
-    // Primul audio creat SINCRON în gestul utilizatorului (autoplay policy)
-    const firstAudio = new Audio();
-    audioRef.current = firstAudio;
+    // Audio creat SINCRON în gestul utilizatorului → autoplay policy
+    const audio = new Audio();
+    audioRef.current = audio;
     setTtsLoading(true);
 
     try {
-      // Generează prima bucată și pornește imediat
-      const firstB64 = await fetchChunk(groups[0]);
-      setTtsLoading(false);
-      firstAudio.src = `data:audio/mp3;base64,${firstB64}`;
-      await firstAudio.play();
-      setSpeechState("speaking");
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: story }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Eroare TTS");
 
-      // Redă bucățile rămase în secvență
-      for (let i = 1; i < groups.length; i++) {
-        const b64 = await fetchChunk(groups[i]);
-        // Așteaptă să termine bucata curentă
-        await new Promise<void>((resolve) => {
-          if (!audioRef.current || audioRef.current.ended || audioRef.current.paused) {
-            resolve();
-            return;
-          }
-          audioRef.current.onended = () => resolve();
-        });
-        if (!audioRef.current) break; // s-a apăsat Stop
-        const nextAudio = new Audio(`data:audio/mp3;base64,${b64}`);
-        audioRef.current = nextAudio;
-        nextAudio.onended = i === groups.length - 1 ? () => setSpeechState("idle") : null;
-        await nextAudio.play();
-      }
+      audio.onended = () => setSpeechState("idle");
+      audio.onerror = () => { audioRef.current = null; browserTTS(story); };
+      audio.src = `data:audio/mp3;base64,${data.audioContent}`;
+      await audio.play();
+      setSpeechState("speaking");
     } catch {
-      // Fallback: Web Speech API dacă Edge TTS pică
       audioRef.current = null;
+      browserTTS(story);
+    } finally {
       setTtsLoading(false);
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        const utterance = new SpeechSynthesisUtterance(story);
-        utterance.lang = "ro-RO";
-        utterance.rate = 0.88;
-        utterance.pitch = 1.05;
-        const voices = window.speechSynthesis.getVoices();
-        const roVoice = voices.find((v) => v.lang.startsWith("ro")) || voices.find((v) => v.localService);
-        if (roVoice) utterance.voice = roVoice;
-        utterance.onend = () => setSpeechState("idle");
-        utterance.onerror = () => setSpeechState("idle");
-        window.speechSynthesis.speak(utterance);
-        setSpeechState("speaking");
-      } else {
-        setSpeechState("idle");
-        setError("Vocea nu este disponibilă momentan. Încearcă din nou.");
-      }
     }
-  }, [story, stopSpeech]);
+  }, [story, stopSpeech, browserTTS]);
 
   const pauseSpeech = () => {
     if (audioRef.current) {
