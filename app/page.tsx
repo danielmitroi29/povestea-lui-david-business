@@ -38,8 +38,6 @@ export default function Home() {
   const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
   const storyRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   useEffect(() => {
     fetch("/api/config")
@@ -112,22 +110,14 @@ const handleNameChange = (index: number, value: string) => {
   };
 
   const stopSpeech = useCallback(() => {
-    if (audioSourceRef.current) {
-      try { audioSourceRef.current.stop(); } catch { /* deja oprit */ }
-      audioSourceRef.current = null;
-    }
-    if (audioCtxRef.current) {
-      audioCtxRef.current.close().catch(() => {});
-      audioCtxRef.current = null;
-    }
     if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
       audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+      audioRef.current.src = "";
       audioRef.current = null;
     }
-    if (typeof window !== "undefined") {
-      window.speechSynthesis?.cancel();
-    }
+    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
     setSpeechState("idle");
   }, []);
 
@@ -199,27 +189,35 @@ const handleNameChange = (index: number, value: string) => {
   const startSpeech = useCallback(async () => {
     if (!story || typeof window === "undefined") return;
     stopSpeech();
-
-    // AudioContext creat SINCRON în gestul utilizatorului — deblochează audio pe iOS Safari
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) { fallbackBrowserTTS(story); return; }
-    const ctx = new AudioCtx() as AudioContext;
-    audioCtxRef.current = ctx;
-    await ctx.resume();
-
-    // iOS Safari suspendă AudioContext dacă nu rulează niciun sunet imediat după resume().
-    // Redăm un buffer gol în buclă ca să ținem contextul activ pe durata fetch-ului.
-    const silenceBuffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * 0.5), ctx.sampleRate);
-    const keepAlive = ctx.createBufferSource();
-    keepAlive.buffer = silenceBuffer;
-    keepAlive.loop = true;
-    keepAlive.connect(ctx.destination);
-    keepAlive.start(0);
-
     setTtsLoading(true);
 
-    // Împarte în bucăți de ~4 propoziții — primul chunk vine în ~1s
+    // Generează un WAV de 200ms de tăcere în JS — deblochează <audio> pe iOS/Chrome
+    const makeSilentWav = (): string => {
+      const sr = 8000, ms = 200;
+      const n = Math.ceil(sr * ms / 1000);
+      const buf = new ArrayBuffer(44 + n);
+      const v = new DataView(buf);
+      const ws = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+      ws(0, "RIFF"); v.setUint32(4, 36 + n, true);
+      ws(8, "WAVE"); ws(12, "fmt ");
+      v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+      v.setUint16(22, 1, true); v.setUint32(24, sr, true);
+      v.setUint32(28, sr, true); v.setUint16(32, 1, true);
+      v.setUint16(34, 8, true); ws(36, "data"); v.setUint32(40, n, true);
+      new Uint8Array(buf).fill(128, 44);
+      const arr = new Uint8Array(buf);
+      let b = "";
+      for (let i = 0; i < arr.length; i++) b += String.fromCharCode(arr[i]);
+      return "data:audio/wav;base64," + btoa(b);
+    };
+
+    // Crează <audio> și pornește tăcerea SINCRON în gestul utilizatorului → iOS deblocat
+    const audio = new Audio();
+    audioRef.current = audio;
+    audio.src = makeSilentWav();
+    const unlockPromise = audio.play().catch(() => {});
+
+    // Împarte în bucăți de ~4 propoziții
     const sentences = story.match(/[^.!?\n]+[.!?\n]+/g) ?? [story];
     const CHUNK_SIZE = 4;
     const chunks: string[] = [];
@@ -227,9 +225,9 @@ const handleNameChange = (index: number, value: string) => {
       const chunk = sentences.slice(i, i + CHUNK_SIZE).join("").trim();
       if (chunk) chunks.push(chunk);
     }
-    if (chunks.length === 0) chunks.push(story);
+    if (!chunks.length) chunks.push(story);
 
-    const fetchBuffer = async (text: string): Promise<AudioBuffer> => {
+    const fetchB64 = async (text: string): Promise<string> => {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -237,50 +235,43 @@ const handleNameChange = (index: number, value: string) => {
       });
       const data = await res.json();
       if (!res.ok || !data.audioContent) throw new Error(data.error || "Eroare TTS");
-      const bytes = Uint8Array.from(atob(data.audioContent), (c) => c.charCodeAt(0));
-      return ctx.decodeAudioData(bytes.buffer);
+      return data.audioContent as string;
     };
 
     try {
-      // Primul chunk — pornește rapid
-      let currentBuffer = await fetchBuffer(chunks[0]);
-      try { keepAlive.stop(); } catch { /* deja oprit */ }
+      // Fetch primul chunk în paralel cu redarea tăcerii de unlock
+      let currentB64 = await fetchB64(chunks[0]);
+      await unlockPromise; // asigurăm că unlock-ul s-a terminat
+
       setTtsLoading(false);
       setSpeechState("speaking");
 
+      // Pre-fetch chunk 1 imediat
+      let nextFetch: Promise<string> | null = chunks.length > 1 ? fetchB64(chunks[1]) : null;
+
       for (let i = 0; i < chunks.length; i++) {
-        if (!audioCtxRef.current) break;
+        if (!audioRef.current) break;
 
-        // Re-resume înainte de fiecare redare — iOS suspendă contextul între chunk-uri
-        if (ctx.state === "suspended") await ctx.resume();
+        // Pre-fetch chunk i+2 în timp ce redăm chunk i
+        const futureNext = (i + 2 < chunks.length) ? fetchB64(chunks[i + 2]) : null;
 
-        // Pre-fetch chunk-ul următor în paralel cu redarea celui curent
-        const nextFetch = i + 1 < chunks.length ? fetchBuffer(chunks[i + 1]) : null;
-
-        const source = ctx.createBufferSource();
-        source.buffer = currentBuffer;
-        source.connect(ctx.destination);
-        audioSourceRef.current = source;
-
-        await new Promise<void>((resolve) => {
-          source.onended = () => resolve();
-          source.start(0);
+        audio.src = `data:audio/mp3;base64,${currentB64}`;
+        await new Promise<void>((resolve, reject) => {
+          audio.onended = () => resolve();
+          audio.onerror = () => reject(new Error("audio error"));
+          audio.play().catch(reject);
         });
 
-        if (nextFetch) currentBuffer = await nextFetch;
+        if (nextFetch) currentB64 = await nextFetch;
+        nextFetch = futureNext;
       }
 
-      if (audioCtxRef.current) {
+      if (audioRef.current) {
         setSpeechState("idle");
-        audioCtxRef.current = null;
-        audioSourceRef.current = null;
+        audioRef.current = null;
       }
     } catch {
-      try { keepAlive.stop(); } catch { /* deja oprit */ }
-      if (audioCtxRef.current) {
-        audioCtxRef.current.close().catch(() => {});
-        audioCtxRef.current = null;
-      }
+      audioRef.current = null;
       fallbackBrowserTTS(story);
     } finally {
       setTtsLoading(false);
@@ -288,20 +279,14 @@ const handleNameChange = (index: number, value: string) => {
   }, [story, stopSpeech, fallbackBrowserTTS]);
 
   const pauseSpeech = () => {
-    if (audioCtxRef.current) {
-      audioCtxRef.current.suspend().catch(() => {});
-    } else {
-      window.speechSynthesis?.pause();
-    }
+    if (audioRef.current) audioRef.current.pause();
+    else window.speechSynthesis?.pause();
     setSpeechState("paused");
   };
 
   const resumeSpeech = () => {
-    if (audioCtxRef.current) {
-      audioCtxRef.current.resume().catch(() => {});
-    } else {
-      window.speechSynthesis?.resume();
-    }
+    if (audioRef.current) audioRef.current.play().catch(() => {});
+    else window.speechSynthesis?.resume();
     setSpeechState("speaking");
   };
 
