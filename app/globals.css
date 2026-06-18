@@ -23,6 +23,16 @@ nextjs-portal {
   display: none !important;
 }
 
+/* Mobile general */
+* {
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+
+input, button, select, textarea {
+  touch-action: manipulation;
+}
+
 @keyframes float {
   0%, 100% { transform: translateY(0px); }
   50% { transform: translateY(-8px); }

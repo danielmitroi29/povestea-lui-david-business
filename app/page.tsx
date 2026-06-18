@@ -41,6 +41,7 @@ export default function Home() {
   const [ttsLoading, setTtsLoading] = useState(false);
   const [envKeys, setEnvKeys] = useState({ openai: false, elevenlabs: false });
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
   const [savedStories, setSavedStories] = useState<SavedStory[]>([]);
   const [storiesPage, setStoriesPage] = useState(0);
   const [storiesTotal, setStoriesTotal] = useState(0);
@@ -71,6 +72,11 @@ export default function Home() {
       .catch(() => {});
 
     loadStories(0);
+
+    const checkMobile = () => setIsMobile(window.innerWidth < 520);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
   const loadStories = (page: number) => {
@@ -323,11 +329,11 @@ export default function Home() {
       }}
     >
       {/* Header */}
-      <header style={{ textAlign: "center", padding: "40px 16px 20px" }}>
-        <div style={{ fontSize: 64, marginBottom: 8 }}>📖</div>
+      <header style={{ textAlign: "center", padding: isMobile ? "24px 16px 12px" : "40px 16px 20px" }}>
+        <div style={{ fontSize: isMobile ? 48 : 64, marginBottom: 8 }}>📖</div>
         <h1
           style={{
-            fontSize: "clamp(2rem, 5vw, 3rem)",
+            fontSize: isMobile ? "1.8rem" : "clamp(2rem, 5vw, 3rem)",
             fontWeight: 800,
             color: "#8B4513",
             fontFamily: "Georgia, serif",
@@ -336,8 +342,8 @@ export default function Home() {
         >
           Povestea lui David
         </h1>
-        <p style={{ color: "#A0522D", marginTop: 8, fontSize: "1.05rem" }}>
-          Povești personalizate în limba română · ~5 minute narare
+        <p style={{ color: "#A0522D", marginTop: 6, fontSize: isMobile ? "0.9rem" : "1.05rem" }}>
+          Povești personalizate în română · ~5 min
         </p>
       </header>
 
@@ -345,22 +351,23 @@ export default function Home() {
         style={{
           maxWidth: 680,
           margin: "0 auto",
-          padding: "0 16px 64px",
+          padding: isMobile ? "0 10px 48px" : "0 16px 64px",
           display: "flex",
           flexDirection: "column",
-          gap: 20,
+          gap: isMobile ? 12 : 20,
         }}
       >
         {/* Mode selector card */}
         <div style={cardStyle}>
           <h2 style={cardTitleStyle}>⚙️ Mod generare</h2>
-          <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ display: "flex", gap: 10, flexDirection: isMobile ? "column" : "row" }}>
             <button
               type="button"
               onClick={() => setMode("local")}
               style={{
                 flex: 1,
-                padding: "12px 8px",
+                padding: isMobile ? "10px 12px" : "12px 8px",
+                minHeight: 44,
                 borderRadius: 16,
                 border: `2px solid ${mode === "local" ? "#e07b54" : "#f5deb3"}`,
                 background: mode === "local"
@@ -382,7 +389,8 @@ export default function Home() {
               onClick={() => { setMode("openai"); setShowApiSection(true); }}
               style={{
                 flex: 1,
-                padding: "12px 8px",
+                padding: isMobile ? "10px 12px" : "12px 8px",
+                minHeight: 44,
                 borderRadius: 16,
                 border: mode === "openai"
                   ? "2px solid #e07b54"
@@ -650,7 +658,8 @@ export default function Home() {
                   key={type.value}
                   onClick={() => setStoryType(type.value)}
                   style={{
-                    padding: "10px 12px",
+                    padding: isMobile ? "8px 10px" : "10px 12px",
+                    minHeight: 44,
                     borderRadius: 14,
                     border: `2px solid ${active ? "#e07b54" : "#f5deb3"}`,
                     background: active
@@ -659,7 +668,7 @@ export default function Home() {
                     color: active ? "white" : "#8B4513",
                     cursor: "pointer",
                     textAlign: "left",
-                    fontSize: "0.875rem",
+                    fontSize: isMobile ? "0.8rem" : "0.875rem",
                     fontWeight: 500,
                     boxShadow: active ? "0 4px 12px rgba(224,123,84,0.35)" : "none",
                   }}
@@ -715,14 +724,15 @@ export default function Home() {
           disabled={loading}
           style={{
             width: "100%",
-            padding: "16px",
+            padding: isMobile ? "14px 12px" : "16px",
+            minHeight: 52,
             borderRadius: 24,
             border: "none",
             background: loading
               ? "#d2a679"
               : "linear-gradient(135deg, #f5a623, #e07b54)",
             color: "white",
-            fontSize: "1.15rem",
+            fontSize: isMobile ? "1rem" : "1.15rem",
             fontWeight: 700,
             cursor: loading ? "not-allowed" : "pointer",
             boxShadow: loading ? "none" : "0 6px 24px rgba(224,123,84,0.45)",
@@ -782,8 +792,8 @@ export default function Home() {
             style={{
               background: "rgba(255,255,255,0.97)",
               border: "2px solid #f5deb3",
-              borderRadius: 24,
-              padding: 32,
+              borderRadius: 20,
+              padding: isMobile ? 16 : 32,
               boxShadow: "0 8px 32px rgba(139,69,19,0.08)",
             }}
           >
@@ -896,8 +906,8 @@ export default function Home() {
             {/* Story text */}
             <div
               style={{
-                lineHeight: 1.9,
-                fontSize: "1.1rem",
+                lineHeight: 1.85,
+                fontSize: isMobile ? "1rem" : "1.1rem",
                 color: "#2d1b00",
                 whiteSpace: "pre-wrap",
                 fontFamily: "Georgia, serif",
@@ -1051,8 +1061,8 @@ export default function Home() {
 const cardStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.85)",
   border: "2px solid #f5deb3",
-  borderRadius: 24,
-  padding: "20px 24px",
+  borderRadius: 20,
+  padding: "16px",
   boxShadow: "0 2px 12px rgba(139,69,19,0.06)",
 };
 
@@ -1086,12 +1096,13 @@ const smallBtnStyle: React.CSSProperties = {
 };
 
 const ttsBtnStyle = (bg: string): React.CSSProperties => ({
-  padding: "8px 18px",
+  padding: "10px 16px",
   borderRadius: 20,
   border: "none",
   background: bg,
   color: "white",
   cursor: "pointer",
-  fontSize: "0.9rem",
+  fontSize: "0.88rem",
   fontWeight: 600,
+  minHeight: 44,
 });
