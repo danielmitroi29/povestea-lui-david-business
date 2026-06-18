@@ -221,11 +221,26 @@ const handleNameChange = (index: number, value: string) => {
         nextAudio.onended = i === groups.length - 1 ? () => setSpeechState("idle") : null;
         await nextAudio.play();
       }
-    } catch (err) {
+    } catch {
+      // Fallback: Web Speech API dacă Edge TTS pică
       audioRef.current = null;
-      setSpeechState("idle");
       setTtsLoading(false);
-      setError(err instanceof Error ? err.message : "Eroare la redarea vocii.");
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(story);
+        utterance.lang = "ro-RO";
+        utterance.rate = 0.88;
+        utterance.pitch = 1.05;
+        const voices = window.speechSynthesis.getVoices();
+        const roVoice = voices.find((v) => v.lang.startsWith("ro")) || voices.find((v) => v.localService);
+        if (roVoice) utterance.voice = roVoice;
+        utterance.onend = () => setSpeechState("idle");
+        utterance.onerror = () => setSpeechState("idle");
+        window.speechSynthesis.speak(utterance);
+        setSpeechState("speaking");
+      } else {
+        setSpeechState("idle");
+        setError("Vocea nu este disponibilă momentan. Încearcă din nou.");
+      }
     }
   }, [story, stopSpeech]);
 
