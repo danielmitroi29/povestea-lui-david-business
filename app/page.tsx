@@ -22,6 +22,8 @@ export default function Home() {
   const [storyType, setStoryType] = useState("original");
   const [customPrompt, setCustomPrompt] = useState("");
   const [story, setStory] = useState("");
+  const [storyTitle, setStoryTitle] = useState("");
+  const [storyCollapsed, setStoryCollapsed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [speechState, setSpeechState] = useState<SpeechState>("idle");
@@ -84,6 +86,8 @@ export default function Home() {
   const loadSavedStory = (s: SavedStory) => {
     stopSpeech();
     setStory(s.text);
+    setStoryTitle(s.title || "");
+    setStoryCollapsed(false);
     setActiveStoryId(s.id);
     setTimeout(() => storyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   };
@@ -151,6 +155,8 @@ const handleNameChange = (index: number, value: string) => {
         throw new Error(data.error || "Eroare la generare");
       }
       setStory(data.story);
+      setStoryTitle(data.title || "");
+      setStoryCollapsed(false);
       setActiveStoryId(null);
       saveStoryToHistory(data.story, data.title || "", true);
       setTimeout(() => storyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
@@ -539,10 +545,52 @@ const handleNameChange = (index: number, value: string) => {
               background: "rgba(255,255,255,0.97)",
               border: "2px solid #f5deb3",
               borderRadius: 20,
-              padding: isMobile ? 16 : 32,
               boxShadow: "0 8px 32px rgba(139,69,19,0.08)",
+              overflow: "hidden",
             }}
           >
+            {/* Header colapsibil */}
+            <div
+              onClick={() => setStoryCollapsed((c) => !c)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: isMobile ? "12px 16px" : "14px 28px",
+                cursor: "pointer",
+                userSelect: "none",
+                background: storyCollapsed ? "#fff9f0" : "transparent",
+                borderBottom: storyCollapsed ? "none" : "1px solid #f5deb3",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <span style={{ fontSize: "1.1rem" }}>📖</span>
+                <span style={{
+                  fontWeight: 700,
+                  fontSize: isMobile ? "0.92rem" : "1rem",
+                  color: "#5c3010",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}>
+                  {storyTitle || "Poveste generată"}
+                </span>
+              </div>
+              <span style={{
+                fontSize: "1.1rem",
+                color: "#b87333",
+                flexShrink: 0,
+                marginLeft: 8,
+                transition: "transform 0.2s",
+                transform: storyCollapsed ? "rotate(0deg)" : "rotate(180deg)",
+              }}>
+                ▾
+              </span>
+            </div>
+
+            {/* Conținut expandat */}
+            {!storyCollapsed && (
+              <div style={{ padding: isMobile ? 16 : 32 }}>
 
             {/* TTS controls */}
             <div
@@ -650,6 +698,8 @@ const handleNameChange = (index: number, value: string) => {
             <div style={{ textAlign: "center", marginTop: 24, fontSize: "1.5rem" }}>
               🌙 ✨ 🌟
             </div>
+              </div>
+            )}
           </div>
         )}
 
