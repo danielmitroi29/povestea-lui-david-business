@@ -31,10 +31,6 @@ export default function Home() {
   const [speechState, setSpeechState] = useState<SpeechState>("idle");
   const [showApiKey, setShowApiKey] = useState(false);
   const [openAiKeySaved, setOpenAiKeySaved] = useState(false);
-  const [elevenLabsKey, setElevenLabsKey] = useState("");
-  const [showElevenLabsSection, setShowElevenLabsSection] = useState(false);
-  const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
-  const [elevenLabsKeySaved, setElevenLabsKeySaved] = useState(false);
   const [aiEnhancedTypes, setAiEnhancedTypes] = useState<Set<string>>(new Set());
   const [usedAiTemplate, setUsedAiTemplate] = useState(false);
   const [aiTemplates, setAiTemplates] = useState<Record<string, string>>({});
@@ -57,9 +53,8 @@ export default function Home() {
     fetch("/api/config")
       .then((r) => r.json())
       .then((cfg: { elevenLabsKey?: string; openAiKey?: string; hasEnvOpenAi?: boolean; hasEnvElevenLabs?: boolean }) => {
-        if (cfg.elevenLabsKey) setElevenLabsKey(cfg.elevenLabsKey);
         if (cfg.openAiKey) setApiKey(cfg.openAiKey);
-        setEnvKeys({ openai: !!cfg.hasEnvOpenAi, elevenlabs: !!cfg.hasEnvElevenLabs });
+        setEnvKeys({ openai: !!cfg.hasEnvOpenAi, elevenlabs: false });
       })
       .catch(() => {});
 
@@ -132,21 +127,7 @@ export default function Home() {
     }
   };
 
-  const saveElevenLabsKey = async () => {
-    try {
-      await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ elevenLabsKey: elevenLabsKey.trim() }),
-      });
-      setElevenLabsKeySaved(true);
-      setTimeout(() => setElevenLabsKeySaved(false), 2500);
-    } catch {
-      // silently ignore
-    }
-  };
-
-  const handleNameChange = (index: number, value: string) => {
+const handleNameChange = (index: number, value: string) => {
     const updated = [...names];
     updated[index] = value;
     setNames(updated);
@@ -246,59 +227,32 @@ export default function Home() {
     if (!story) return;
     stopSpeech();
 
-    if (elevenLabsKey.trim()) {
-      // ── ElevenLabs TTS – voce neurală multilinguală ──
-      // Audio creat SINCRON în gestul utilizatorului → browserul acordă permisiunea autoplay
-      const audio = new Audio();
-      audioRef.current = audio;
-      setTtsLoading(true);
-      try {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: story, apiKey: elevenLabsKey }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Eroare ElevenLabs TTS");
+    // Audio creat SINCRON în gestul utilizatorului → browserul acordă permisiunea autoplay
+    const audio = new Audio();
+    audioRef.current = audio;
+    setTtsLoading(true);
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: story }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Eroare TTS");
 
-        audio.onended = () => setSpeechState("idle");
-        audio.onerror = () => setSpeechState("idle");
-        audio.src = `data:audio/mp3;base64,${data.audioContent}`;
-        await audio.play();
-        setSpeechState("speaking"); // setat DUPĂ ce play() pornește cu succes
-      } catch (err) {
-        audioRef.current = null;
-        setSpeechState("idle");
-        setError(err instanceof Error ? err.message : "Eroare la redarea vocii.");
-      } finally {
-        setTtsLoading(false);
-      }
-    } else {
-      // ── Fallback: Web Speech API ──
-      if (typeof window === "undefined") return;
-      setTimeout(() => {
-        const utterance = new SpeechSynthesisUtterance(story);
-        utterance.lang = "ro-RO";
-        utterance.rate = 0.88;
-        utterance.pitch = 1.05;
-        utterance.volume = 1;
-
-        const voices = window.speechSynthesis.getVoices();
-        const FEMININE_RO = ["ioana", "carmen", "roxana", "andreea", "elena", "maria", "female", "woman"];
-        const roVoices = voices.filter((v) => v.lang.startsWith("ro"));
-        const roFemaleVoice =
-          roVoices.find((v) => FEMININE_RO.some((k) => v.name.toLowerCase().includes(k))) ||
-          roVoices[0];
-        const roVoice = roFemaleVoice || voices.find((v) => v.localService);
-        if (roVoice) utterance.voice = roVoice;
-
-        utterance.onend = () => setSpeechState("idle");
-        utterance.onerror = () => setSpeechState("idle");
-        window.speechSynthesis.speak(utterance);
-        setSpeechState("speaking");
-      }, 100);
+      audio.onended = () => setSpeechState("idle");
+      audio.onerror = () => setSpeechState("idle");
+      audio.src = `data:audio/mp3;base64,${data.audioContent}`;
+      await audio.play();
+      setSpeechState("speaking");
+    } catch (err) {
+      audioRef.current = null;
+      setSpeechState("idle");
+      setError(err instanceof Error ? err.message : "Eroare la redarea vocii.");
+    } finally {
+      setTtsLoading(false);
     }
-  }, [story, stopSpeech, elevenLabsKey]);
+  }, [story, stopSpeech]);
 
   const pauseSpeech = () => {
     if (audioRef.current) {
@@ -488,99 +442,11 @@ export default function Home() {
           </div>
         )}
 
-        {/* ElevenLabs TTS card – ascuns dacă cheia e configurată prin env var */}
-        <div style={{ ...cardStyle, display: envKeys.elevenlabs ? "none" : undefined }}>
-          <button
-            type="button"
-            onClick={() => setShowElevenLabsSection((v) => !v)}
-            style={{
-              width: "100%",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: 0,
-            }}
-          >
-            <h2 style={{ ...cardTitleStyle, marginBottom: 0 }}>
-              🎙️ Voce neurală nativă{" "}
-              <span style={{ fontWeight: 400, fontSize: "0.8rem", color: "#b87333" }}>(opțional)</span>
-            </h2>
-            <span style={{ color: "#A0522D", fontSize: "0.85rem" }}>
-              {showElevenLabsSection ? "▲ Ascunde" : "▼ Configurează"}
-            </span>
-          </button>
-
-          {!showElevenLabsSection && (
-            <p style={{ color: "#7a9e3b", fontSize: "0.8rem", marginTop: 8, marginBottom: 0 }}>
-              {elevenLabsKey.trim()
-                ? "✅ Voce ElevenLabs Matilda activată – pronunție naturală în română."
-                : "ℹ️ Adaugă o cheie ElevenLabs pentru voce neurală (gratuit, fără card bancar)."}
-            </p>
-          )}
-
-          {showElevenLabsSection && (
-            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              <p style={{ color: "#6b4c2a", fontSize: "0.82rem", margin: 0 }}>
-                Folosește modelul <strong>eleven_multilingual_v2</strong> de la ElevenLabs —
-                voce feminină călduroasă, pronunție naturală în română.{" "}
-                <strong>10.000 caractere/lună gratuit</strong>, fără card bancar.
-              </p>
-              {envKeys.elevenlabs ? (
-                <div style={{ background: "#e8f5e9", border: "1.5px solid #66bb6a", borderRadius: 12, padding: "10px 14px", fontSize: "0.85rem", color: "#2e7d32" }}>
-                  ✅ Cheie configurată pe server — vocea Matilda este activă automat.
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input
-                    type={showElevenLabsKey ? "text" : "password"}
-                    value={elevenLabsKey}
-                    onChange={(e) => { setElevenLabsKey(e.target.value); setElevenLabsKeySaved(false); }}
-                    placeholder="sk_..."
-                    style={{ ...inputStyle, flex: 1 }}
-                  />
-                  <button
-                    onClick={() => setShowElevenLabsKey((v) => !v)}
-                    style={{ ...smallBtnStyle, flexShrink: 0 }}
-                    type="button"
-                  >
-                    {showElevenLabsKey ? "🙈" : "👁️"}
-                  </button>
-                  <button
-                    onClick={saveElevenLabsKey}
-                    disabled={!elevenLabsKey.trim()}
-                    style={{
-                      ...smallBtnStyle,
-                      flexShrink: 0,
-                      background: elevenLabsKeySaved ? "#e8f5e9" : "#f5deb3",
-                      color: elevenLabsKeySaved ? "#2e7d32" : "#8B4513",
-                      border: elevenLabsKeySaved ? "1.5px solid #66bb6a" : "1.5px solid #d2a679",
-                      cursor: elevenLabsKey.trim() ? "pointer" : "not-allowed",
-                      opacity: elevenLabsKey.trim() ? 1 : 0.5,
-                      transition: "all 0.3s",
-                      whiteSpace: "nowrap",
-                    }}
-                    type="button"
-                  >
-                    {elevenLabsKeySaved ? "✅ Salvat!" : "💾 Salvează"}
-                  </button>
-                </div>
-              )}
-              <p style={{ color: "#b87333", fontSize: "0.78rem", margin: 0 }}>
-                Cheia se salvează local în fișierul proiectului — rămâne setată la fiecare reîncărcare.{" "}
-                <a
-                  href="https://elevenlabs.io/app/sign-up"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "#8B4513" }}
-                >
-                  Creează cont ElevenLabs gratuit →
-                </a>
-              </p>
-            </div>
-          )}
+        {/* Voce neurală – Edge TTS */}
+        <div style={{ ...cardStyle, background: "#f0faf0", border: "1.5px solid #a5d6a7" }}>
+          <p style={{ margin: 0, fontSize: "0.88rem", color: "#2e7d32", fontWeight: 500 }}>
+            🎙️ Voce neurală <strong>Alina</strong> (Microsoft Edge TTS) — activă automat, fără cont sau cheie API.
+          </p>
         </div>
 
         {/* Names card */}
@@ -829,7 +695,7 @@ export default function Home() {
                   style={ttsBtnStyle("#27ae60")}
                   type="button"
                 >
-                  {elevenLabsKey.trim() ? "🎙️ Ascultă (Matilda Neural)" : "🎙️ Ascultă povestea"}
+                  🎙️ Ascultă (Alina Neural)
                 </button>
               )}
               {ttsLoading && (
