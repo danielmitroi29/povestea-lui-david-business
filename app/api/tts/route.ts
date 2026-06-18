@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+import OpenAI from "openai";
 
-const VOICE    = "ro-RO-AlinaNeural";
-const MAX_CHARS = 9500;
+const MAX_CHARS = 4096; // limita OpenAI TTS per cerere
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,20 +11,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Textul este necesar." }, { status: 400 });
     }
 
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "Cheia OpenAI nu este configurată." }, { status: 400 });
+    }
+
+    const client = new OpenAI({ apiKey });
     const truncated = text.slice(0, MAX_CHARS);
-    const tts = new MsEdgeTTS();
-    await tts.setMetadata(VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
 
-    const chunks: Buffer[] = [];
-    const { audioStream } = tts.toStream(truncated);
-
-    await new Promise<void>((resolve, reject) => {
-      audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
-      audioStream.on("end", resolve);
-      audioStream.on("error", reject);
+    const response = await client.audio.speech.create({
+      model: "tts-1",
+      voice: "nova",       // feminină, caldă – ideală pentru povești
+      input: truncated,
+      response_format: "mp3",
     });
 
-    const base64 = Buffer.concat(chunks).toString("base64");
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const base64 = buffer.toString("base64");
+
     return NextResponse.json({ audioContent: base64 });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Eroare necunoscută";
