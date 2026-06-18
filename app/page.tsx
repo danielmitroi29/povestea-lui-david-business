@@ -54,7 +54,9 @@ export default function Home() {
       .then((r) => r.json())
       .then((cfg: { elevenLabsKey?: string; openAiKey?: string; hasEnvOpenAi?: boolean; hasEnvElevenLabs?: boolean }) => {
         if (cfg.openAiKey) setApiKey(cfg.openAiKey);
+        const hasOpenAi = !!cfg.hasEnvOpenAi || !!cfg.openAiKey;
         setEnvKeys({ openai: !!cfg.hasEnvOpenAi, elevenlabs: false });
+        setMode(hasOpenAi ? "openai" : "local");
       })
       .catch(() => {});
 
@@ -311,143 +313,7 @@ const handleNameChange = (index: number, value: string) => {
           gap: isMobile ? 12 : 20,
         }}
       >
-        {/* Mode selector card */}
-        <div style={cardStyle}>
-          <h2 style={cardTitleStyle}>⚙️ Mod generare</h2>
-          <div style={{ display: "flex", gap: 10, flexDirection: isMobile ? "column" : "row" }}>
-            <button
-              type="button"
-              onClick={() => setMode("local")}
-              style={{
-                flex: 1,
-                padding: isMobile ? "10px 12px" : "12px 8px",
-                minHeight: 44,
-                borderRadius: 16,
-                border: `2px solid ${mode === "local" ? "#e07b54" : "#f5deb3"}`,
-                background: mode === "local"
-                  ? "linear-gradient(135deg, #f5a623, #e07b54)"
-                  : "#fffdf8",
-                color: mode === "local" ? "white" : "#8B4513",
-                cursor: "pointer",
-                fontWeight: 700,
-                fontSize: "0.9rem",
-              }}
-            >
-              🏠 Local<br />
-              <span style={{ fontWeight: 400, fontSize: "0.78rem" }}>
-                Instant, fără cont
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setMode("openai"); setShowApiSection(true); }}
-              style={{
-                flex: 1,
-                padding: isMobile ? "10px 12px" : "12px 8px",
-                minHeight: 44,
-                borderRadius: 16,
-                border: mode === "openai"
-                  ? "2px solid #e07b54"
-                  : envKeys.openai
-                    ? "2px solid #66bb6a"
-                    : "2px solid #f5deb3",
-                background: mode === "openai"
-                  ? "linear-gradient(135deg, #f5a623, #e07b54)"
-                  : "#fffdf8",
-                color: mode === "openai" ? "white" : "#8B4513",
-                cursor: "pointer",
-                fontWeight: 700,
-                fontSize: "0.9rem",
-                position: "relative",
-              }}
-            >
-              🤖 OpenAI GPT<br />
-              <span style={{ fontWeight: 400, fontSize: "0.78rem" }}>
-                {envKeys.openai ? "✅ Configurat și activ" : "Creativitate maximă"}
-              </span>
-              {envKeys.openai && mode !== "openai" && (
-                <span style={{
-                  position: "absolute",
-                  top: 6,
-                  right: 8,
-                  background: "#66bb6a",
-                  color: "white",
-                  fontSize: "0.6rem",
-                  fontWeight: 700,
-                  borderRadius: 6,
-                  padding: "1px 5px",
-                }}>ACTIV</span>
-              )}
-            </button>
-          </div>
-          {mode === "local" && (
-            <p style={{ color: "#7a9e3b", fontSize: "0.8rem", marginTop: 8, marginBottom: 0 }}>
-              ✅ Povestea se generează direct în browser — nu este nevoie de cont sau cheie API.
-            </p>
-          )}
-        </div>
 
-        {/* OpenAI API Key card – ascuns dacă cheia e configurată prin env var */}
-        {mode === "openai" && !envKeys.openai && (
-          <div style={cardStyle}>
-            <h2 style={cardTitleStyle}>🔑 Cheie API OpenAI</h2>
-            {envKeys.openai ? (
-              <div style={{ background: "#e8f5e9", border: "1.5px solid #66bb6a", borderRadius: 12, padding: "10px 14px", fontSize: "0.85rem", color: "#2e7d32" }}>
-                ✅ Cheie configurată pe server — nu este nevoie să o introduci manual.
-              </div>
-            ) : (
-              <>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input
-                    type={showApiKey ? "text" : "password"}
-                    value={apiKey}
-                    onChange={(e) => { setApiKey(e.target.value); setOpenAiKeySaved(false); }}
-                    placeholder="sk-..."
-                    style={{ ...inputStyle, flex: 1 }}
-                  />
-                  <button
-                    onClick={() => setShowApiKey((v) => !v)}
-                    style={{ ...smallBtnStyle, flexShrink: 0 }}
-                    type="button"
-                  >
-                    {showApiKey ? "🙈" : "👁️"}
-                  </button>
-                  <button
-                    onClick={saveOpenAiKey}
-                    disabled={!apiKey.trim()}
-                    style={{
-                      ...smallBtnStyle,
-                      flexShrink: 0,
-                      background: openAiKeySaved ? "#e8f5e9" : "#f5deb3",
-                      color: openAiKeySaved ? "#2e7d32" : "#8B4513",
-                      border: openAiKeySaved ? "1.5px solid #66bb6a" : "1.5px solid #d2a679",
-                      cursor: apiKey.trim() ? "pointer" : "not-allowed",
-                      opacity: apiKey.trim() ? 1 : 0.5,
-                      transition: "all 0.3s",
-                      whiteSpace: "nowrap",
-                    }}
-                    type="button"
-                  >
-                    {openAiKeySaved ? "✅ Salvat!" : "💾 Salvează"}
-                  </button>
-                </div>
-                <p style={{ color: "#b87333", fontSize: "0.78rem", marginTop: 6 }}>
-                  Cheia se salvează local în fișierul proiectului — rămâne setată la fiecare reîncărcare.{" "}
-                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: "#8B4513" }}>
-                    Obține cheie →
-                  </a>
-                </p>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Voce neurală – Edge TTS */}
-        <div style={{ ...cardStyle, background: "#f0faf0", border: "1.5px solid #a5d6a7" }}>
-          <p style={{ margin: 0, fontSize: "0.88rem", color: "#2e7d32", fontWeight: 500 }}>
-            🎙️ Voce neurală <strong>Alina</strong> (Microsoft Edge TTS) — activă automat, fără cont sau cheie API.
-          </p>
-        </div>
 
         {/* Names card */}
         <div style={cardStyle}>
@@ -582,6 +448,19 @@ const handleNameChange = (index: number, value: string) => {
               boxSizing: "border-box",
             }}
           />
+        </div>
+
+        {/* Indicator status AI */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end", marginBottom: -6 }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: (envKeys.openai || apiKey.trim()) ? "#4caf50" : "#bdbdbd",
+            display: "inline-block",
+            boxShadow: (envKeys.openai || apiKey.trim()) ? "0 0 0 3px rgba(76,175,80,0.2)" : "none",
+          }} />
+          <span style={{ fontSize: "0.72rem", color: (envKeys.openai || apiKey.trim()) ? "#2e7d32" : "#9e9e9e", fontWeight: 500 }}>
+            {(envKeys.openai || apiKey.trim()) ? "AI activ" : "Mod local"}
+          </span>
         </div>
 
         {/* Generate button */}
