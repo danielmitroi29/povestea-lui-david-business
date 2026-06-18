@@ -206,7 +206,16 @@ const handleNameChange = (index: number, value: string) => {
     if (!AudioCtx) { fallbackBrowserTTS(story); return; }
     const ctx = new AudioCtx() as AudioContext;
     audioCtxRef.current = ctx;
-    if (ctx.state === "suspended") await ctx.resume();
+    await ctx.resume();
+
+    // iOS Safari suspendă AudioContext dacă nu rulează niciun sunet imediat după resume().
+    // Redăm un buffer gol în buclă ca să ținem contextul activ pe durata fetch-ului.
+    const silenceBuffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * 0.5), ctx.sampleRate);
+    const keepAlive = ctx.createBufferSource();
+    keepAlive.buffer = silenceBuffer;
+    keepAlive.loop = true;
+    keepAlive.connect(ctx.destination);
+    keepAlive.start(0);
 
     setTtsLoading(true);
 
@@ -235,6 +244,7 @@ const handleNameChange = (index: number, value: string) => {
     try {
       // Primul chunk — pornește rapid
       let currentBuffer = await fetchBuffer(chunks[0]);
+      try { keepAlive.stop(); } catch { /* deja oprit */ }
       setTtsLoading(false);
       setSpeechState("speaking");
 
@@ -266,6 +276,7 @@ const handleNameChange = (index: number, value: string) => {
         audioSourceRef.current = null;
       }
     } catch {
+      try { keepAlive.stop(); } catch { /* deja oprit */ }
       if (audioCtxRef.current) {
         audioCtxRef.current.close().catch(() => {});
         audioCtxRef.current = null;
