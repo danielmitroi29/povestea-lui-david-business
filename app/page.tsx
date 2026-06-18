@@ -210,32 +210,66 @@ const handleNameChange = (index: number, value: string) => {
 
     setTtsLoading(true);
 
-    try {
+    // Împarte în bucăți de ~4 propoziții — primul chunk vine în ~1s
+    const sentences = story.match(/[^.!?\n]+[.!?\n]+/g) ?? [story];
+    const CHUNK_SIZE = 4;
+    const chunks: string[] = [];
+    for (let i = 0; i < sentences.length; i += CHUNK_SIZE) {
+      const chunk = sentences.slice(i, i + CHUNK_SIZE).join("").trim();
+      if (chunk) chunks.push(chunk);
+    }
+    if (chunks.length === 0) chunks.push(story);
+
+    const fetchBuffer = async (text: string): Promise<AudioBuffer> => {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: story }),
+        body: JSON.stringify({ text }),
       });
       const data = await res.json();
       if (!res.ok || !data.audioContent) throw new Error(data.error || "Eroare TTS");
-
       const bytes = Uint8Array.from(atob(data.audioContent), (c) => c.charCodeAt(0));
-      const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+      return ctx.decodeAudioData(bytes.buffer);
+    };
 
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-      source.onended = () => {
+    try {
+      // Primul chunk — pornește rapid
+      let currentBuffer = await fetchBuffer(chunks[0]);
+      setTtsLoading(false);
+      setSpeechState("speaking");
+
+      for (let i = 0; i < chunks.length; i++) {
+        if (!audioCtxRef.current) break;
+
+        // Re-resume înainte de fiecare redare — iOS suspendă contextul între chunk-uri
+        if (ctx.state === "suspended") await ctx.resume();
+
+        // Pre-fetch chunk-ul următor în paralel cu redarea celui curent
+        const nextFetch = i + 1 < chunks.length ? fetchBuffer(chunks[i + 1]) : null;
+
+        const source = ctx.createBufferSource();
+        source.buffer = currentBuffer;
+        source.connect(ctx.destination);
+        audioSourceRef.current = source;
+
+        await new Promise<void>((resolve) => {
+          source.onended = () => resolve();
+          source.start(0);
+        });
+
+        if (nextFetch) currentBuffer = await nextFetch;
+      }
+
+      if (audioCtxRef.current) {
         setSpeechState("idle");
         audioCtxRef.current = null;
         audioSourceRef.current = null;
-      };
-      audioSourceRef.current = source;
-      source.start(0);
-      setSpeechState("speaking");
+      }
     } catch {
-      ctx.close().catch(() => {});
-      audioCtxRef.current = null;
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
       fallbackBrowserTTS(story);
     } finally {
       setTtsLoading(false);
