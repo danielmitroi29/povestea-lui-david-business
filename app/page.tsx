@@ -274,6 +274,17 @@ const handleNameChange = (index: number, value: string) => {
         <p style={{ color: "#A0522D", marginTop: 6, fontSize: isMobile ? "0.9rem" : "1.05rem" }}>
           Povești personalizate în română · ~5 min
         </p>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, padding: "4px 12px", borderRadius: 20, background: (envKeys.openai || apiKey.trim()) ? "rgba(76,175,80,0.12)" : "rgba(180,180,180,0.15)" }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: (envKeys.openai || apiKey.trim()) ? "#4caf50" : "#bdbdbd",
+            display: "inline-block",
+            boxShadow: (envKeys.openai || apiKey.trim()) ? "0 0 0 3px rgba(76,175,80,0.25)" : "none",
+          }} />
+          <span style={{ fontSize: "0.75rem", fontWeight: 600, color: (envKeys.openai || apiKey.trim()) ? "#2e7d32" : "#9e9e9e" }}>
+            {(envKeys.openai || apiKey.trim()) ? "AI activ" : "AI inactiv"}
+          </span>
+        </div>
       </header>
 
       <main
