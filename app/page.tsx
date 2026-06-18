@@ -163,64 +163,35 @@ const handleNameChange = (index: number, value: string) => {
     }
   };
 
-  const browserTTS = useCallback((text: string) => {
-    if (typeof window === "undefined" || !window.speechSynthesis) {
-      setSpeechState("idle");
-      return;
-    }
+  const startSpeech = useCallback(() => {
+    if (!story || typeof window === "undefined" || !window.speechSynthesis) return;
+    stopSpeech();
+
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(story);
     utterance.lang = "ro-RO";
     utterance.rate = 1.1;
     utterance.pitch = 1.1;
-    const trySpeak = () => {
+    utterance.volume = 1;
+
+    utterance.onend = () => setSpeechState("idle");
+    utterance.onerror = () => setSpeechState("idle");
+
+    const speak = () => {
       const voices = window.speechSynthesis.getVoices();
-      const roVoice = voices.find((v) => v.lang.startsWith("ro")) || voices[0];
+      const roVoice = voices.find((v) => v.lang.startsWith("ro"));
       if (roVoice) utterance.voice = roVoice;
-      utterance.onend = () => setSpeechState("idle");
-      utterance.onerror = () => setSpeechState("idle");
       window.speechSynthesis.speak(utterance);
       setSpeechState("speaking");
     };
+
     const voices = window.speechSynthesis.getVoices();
     if (voices.length > 0) {
-      trySpeak();
+      speak();
     } else {
-      window.speechSynthesis.addEventListener("voiceschanged", trySpeak, { once: true });
-      trySpeak();
+      window.speechSynthesis.addEventListener("voiceschanged", speak, { once: true });
     }
-  }, []);
-
-  const startSpeech = useCallback(async () => {
-    if (!story) return;
-    stopSpeech();
-
-    // Audio creat SINCRON în gestul utilizatorului → autoplay policy
-    const audio = new Audio();
-    audioRef.current = audio;
-    setTtsLoading(true);
-
-    try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: story }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Eroare TTS");
-
-      audio.onended = () => setSpeechState("idle");
-      audio.onerror = () => { audioRef.current = null; browserTTS(story); };
-      audio.src = `data:audio/mp3;base64,${data.audioContent}`;
-      await audio.play();
-      setSpeechState("speaking");
-    } catch {
-      audioRef.current = null;
-      browserTTS(story);
-    } finally {
-      setTtsLoading(false);
-    }
-  }, [story, stopSpeech, browserTTS]);
+  }, [story, stopSpeech]);
 
   const pauseSpeech = () => {
     if (audioRef.current) {
