@@ -38,6 +38,8 @@ export default function Home() {
   const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
   const storyRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   useEffect(() => {
     fetch("/api/config")
@@ -110,13 +112,19 @@ const handleNameChange = (index: number, value: string) => {
   };
 
   const stopSpeech = useCallback(() => {
-    // Oprește audio HTML5 (ElevenLabs TTS)
+    if (audioSourceRef.current) {
+      try { audioSourceRef.current.stop(); } catch { /* deja oprit */ }
+      audioSourceRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
       audioRef.current = null;
     }
-    // Oprește Web Speech API (fallback)
     if (typeof window !== "undefined") {
       window.speechSynthesis?.cancel();
     }
@@ -163,20 +171,19 @@ const handleNameChange = (index: number, value: string) => {
     }
   };
 
-  const startSpeech = useCallback(() => {
-    if (!story || typeof window === "undefined" || !window.speechSynthesis) return;
-    stopSpeech();
-
+  const fallbackBrowserTTS = useCallback((text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      setSpeechState("idle");
+      return;
+    }
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(story);
+    const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "ro-RO";
     utterance.rate = 1.1;
     utterance.pitch = 1.1;
     utterance.volume = 1;
-
     utterance.onend = () => setSpeechState("idle");
     utterance.onerror = () => setSpeechState("idle");
-
     const speak = () => {
       const voices = window.speechSynthesis.getVoices();
       const roVoice = voices.find((v) => v.lang.startsWith("ro"));
@@ -184,29 +191,71 @@ const handleNameChange = (index: number, value: string) => {
       window.speechSynthesis.speak(utterance);
       setSpeechState("speaking");
     };
-
     const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      speak();
-    } else {
-      window.speechSynthesis.addEventListener("voiceschanged", speak, { once: true });
+    if (voices.length > 0) speak();
+    else window.speechSynthesis.addEventListener("voiceschanged", speak, { once: true });
+  }, []);
+
+  const startSpeech = useCallback(async () => {
+    if (!story || typeof window === "undefined") return;
+    stopSpeech();
+
+    // AudioContext creat SINCRON în gestul utilizatorului — deblochează audio pe iOS Safari
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) { fallbackBrowserTTS(story); return; }
+    const ctx = new AudioCtx() as AudioContext;
+    audioCtxRef.current = ctx;
+    if (ctx.state === "suspended") await ctx.resume();
+
+    setTtsLoading(true);
+
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: story }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.audioContent) throw new Error(data.error || "Eroare TTS");
+
+      const bytes = Uint8Array.from(atob(data.audioContent), (c) => c.charCodeAt(0));
+      const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.onended = () => {
+        setSpeechState("idle");
+        audioCtxRef.current = null;
+        audioSourceRef.current = null;
+      };
+      audioSourceRef.current = source;
+      source.start(0);
+      setSpeechState("speaking");
+    } catch {
+      ctx.close().catch(() => {});
+      audioCtxRef.current = null;
+      fallbackBrowserTTS(story);
+    } finally {
+      setTtsLoading(false);
     }
-  }, [story, stopSpeech]);
+  }, [story, stopSpeech, fallbackBrowserTTS]);
 
   const pauseSpeech = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
+    if (audioCtxRef.current) {
+      audioCtxRef.current.suspend().catch(() => {});
     } else {
-      window.speechSynthesis.pause();
+      window.speechSynthesis?.pause();
     }
     setSpeechState("paused");
   };
 
   const resumeSpeech = () => {
-    if (audioRef.current) {
-      audioRef.current.play();
+    if (audioCtxRef.current) {
+      audioCtxRef.current.resume().catch(() => {});
     } else {
-      window.speechSynthesis.resume();
+      window.speechSynthesis?.resume();
     }
     setSpeechState("speaking");
   };
