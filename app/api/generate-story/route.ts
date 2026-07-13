@@ -1,6 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// Stiluri de deschidere — fiecare impune o structură narativă diferită
+const OPENING_STYLES = [
+  "Începe IN MEDIAS RES: prima propoziție aruncă personajul direct în acțiune. Nu descrie cine este, ci ce face sau ce i se întâmplă chiar acum.",
+  "Începe cu un DIALOG: prima linie este exact ce spune sau strigă personajul principal, între ghilimele.",
+  "Începe cu o ONOMATOPEE sau un sunet neașteptat care îl surprinde pe personaj și declanșează aventura.",
+  "Începe cu O SURPRIZĂ sau ceva ciudat pe care personajul îl descoperă dimineața (un obiect, un animal, un bilet misterios).",
+  "Începe cu O SENZAȚIE fizică sau emoție puternică trăită de personaj: foame, frică ușoară, bucurie explozivă, curiozitate.",
+  "Începe cu o DESCRIERE de un singur rând a unui loc neobișnuit, apoi plasează imediat personajul în el.",
+  "Începe cu O ÎNTREBARE pe care și-o pune personajul în gând, urmată imediat de o acțiune.",
+];
+
+// Teme și conflicte diverse — FĂRĂ mingea pierdută
+const STORY_THEMES = [
+  "Personajul găsește un pui de pasăre căzut din cuib și încearcă să îl ajute să se întoarcă acasă.",
+  "Personajul vrea să construiască cea mai mare casă din perne și pături din lume, dar tot se dărâmă.",
+  "Personajul descoperă că planta din ghiveci a înflorit peste noapte și crede că e magică.",
+  "Personajul face o greșeală mică (varsă sucul, rupe ceva) și încearcă să repare totul înainte să afle mama.",
+  "Personajul ajută un prieten care plânge pentru că nu știe să facă ceva și îl învață pas cu pas.",
+  "Personajul se teme de un tunet puternic și mama îl ajută să înțeleagă că nu e periculos.",
+  "Personajul pregătește în secret o surpriză pentru ziua de naștere a mamei sau tatei.",
+  "Personajul descoperă un melc în grădină și îl urmărește toată dimineața, curioasă/curios unde merge.",
+  "Personajul vrea să zboare ca o pasăre și încearcă tot felul de metode amuzante care eșuează comic.",
+  "Personajul primește un pachet misterios de la bunica și trebuie să ghicească ce e înăuntru.",
+  "Personajul încearcă să adoarmă dar nu poate, și îi povestește jucăriei preferate tot felul de gânduri.",
+  "Personajul ajută la cumpărături și pierde lista, trebuie să își amintească tot ce era pe ea.",
+  "Personajul descoperă că o jucărie veche uitată are o poveste specială și o repară cu grijă.",
+  "Personajul încearcă să facă o prăjitură surpriză și bucătăria devine haos amuzant.",
+  "Personajul găsește o omidă pe o frunză și o îngrijește zilnic până devine fluture.",
+  "Personajul se plictisește o zi ploioasă și inventează un joc nou din obiecte de prin casă.",
+  "Personajul încearcă să cânte un cântec pentru bunica și îl tot uită, dar nu se lasă.",
+  "Personajul se pierde scurt în parc și găsește curajul să ceară ajutor unui adult.",
+];
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -8,57 +45,58 @@ export async function POST(req: NextRequest) {
 
     const resolvedApiKey = process.env.OPENAI_API_KEY || apiKey;
     if (!resolvedApiKey) {
-      return NextResponse.json(
-        { error: "Cheia API OpenAI este necesară." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Cheia API OpenAI este necesară." }, { status: 400 });
     }
-
     if (!names || names.length === 0) {
-      return NextResponse.json(
-        { error: "Te rog introdu cel putin un nume." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Te rog introdu cel puțin un nume." }, { status: 400 });
     }
 
     const client = new OpenAI({ apiKey: resolvedApiKey });
     const namesList = names.join(", ");
 
-    const systemPrompt = `Ești un povestitor pentru copii MICI de 3 ani care scrie povești în limba română.
+    // Selectăm aleator la fiecare cerere — garantează diversitate
+    const openingStyle = pick(OPENING_STYLES);
+    const storyTheme   = customPrompt ? null : pick(STORY_THEMES);
+
+    const systemPrompt = `Ești un povestitor creativ pentru copii de 3 ani care scrie povești în limba română.
 
 Prima linie a răspunsului tău trebuie să fie exact în formatul:
-TITLU: <un titlu scurt, poetic, maxim 7 cuvinte, în română>
+TITLU: <titlu scurt și poetic, maxim 7 cuvinte>
 
-După titlu, scrie povestea pe rânduri noi.
+Apoi scrie povestea.
 
-REGULI STRICTE de limbaj pentru 3 ani:
-- Propoziții SCURTE: maxim 6-8 cuvinte fiecare
-- Fiecare propoziție pe rând nou (ca versuri)
-- Vocabular SIMPLU: cuvinte pe care le știe un copil de 3 ani
-- Onomatopee: Bum! Hap! Poc! Cip! Miau! Cuac! Zzz! etc.
-- REPETIȚIE: repetă aceeași frază de 2-3 ori (copiii de 3 ani adoră repetiția)
-- Probleme CONCRETE: minge pierdută, prieten trist, drum greșit — NU probleme abstracte
-- Finalul: copilul se întoarce acasă, mama îl îmbrățișează
-- Moral SIMPLU și concret: o propoziție, cuvinte simple
-- 200-280 de cuvinte total (la narare lentă ~4-5 minute)
+━━━ REGULI DE LIMBAJ (vârsta 3 ani) ━━━
+• Propoziții SCURTE: 5-7 cuvinte fiecare, pe rând nou
+• Vocabular SIMPLU: doar cuvinte cunoscute de un copil de 3 ani
+• Onomatopee vii: Bum! Poc! Trosc! Miau! Cuac! Hap! Zzz! Pleosc!
+• REPETIȚIE intenționată: repetă o frază cheie de 2-3 ori
+• Dialog: include cel puțin 2-3 replici scurte între personaje
+• Final cald: personajul ajunge acasă, e îmbrățișat, e fericit
+• Morală concretă: o singură propoziție simplă
+• Lungime: 220-280 cuvinte
 
-INTERZIS: cuvinte lungi sau abstracte, fraze compuse cu 3+ propoziții, concepte filozofice, scene violente sau înfricoșătoare
+━━━ INTERZIS ━━━
+• NU începe cu „[Nume] este un băiat/o fată vesel/ă" sau orice variantă
+• NU scrie „[Nume] este un copil..." la început
+• NU folosi mingea pierdută ca temă sau problemă
+• NU folosi cuvinte abstracte, lungi sau filozofice
+• NU repeta aceeași structură de poveste ca data trecută
 
-Folosește OBLIGATORIU numele copiilor din cerere ca personaje PRINCIPALE.`;
+━━━ STIL DE DESCHIDERE OBLIGATORIU PENTRU ACEASTĂ POVESTE ━━━
+${openingStyle}`;
 
     const userPrompt = customPrompt
-      ? `Scrie o poveste originală pentru copii cu personajele principale: ${namesList}.
+      ? `Scrie o poveste pentru: ${namesList}.
 
-TEMA CENTRALĂ — construiește TOATĂ povestea în jurul acesteia: ${customPrompt}
-Tema trebuie să apară:
-1. În introducere, ca trăsătură sau context special al eroului
-2. În miezul poveștii, ca instrument sau abilitate care ajută în aventură
-3. La climax, ca soluția decisivă a problemei
+TEMA DATĂ DE UTILIZATOR: ${customPrompt}
 
-Fă din ${namesList} eroii care trăiesc o aventură captivantă legată de această temă. Povestea trebuie să fie de 650-700 cuvinte.`
-      : `Scrie o poveste originală pentru copii cu personajele principale: ${namesList}.
-Fă din ${namesList} eroii unei aventuri captivante, cu obstacole, dialog amuzant și o morală clară.
-Povestea trebuie să fie de 650-700 cuvinte.`;
+Integrează tema natural în toată povestea — la început ca context, la mijloc ca instrument de rezolvare, la final ca victorie clară. Povestea trebuie să fie vie, cu dialog și momente amuzante.`
+      : `Scrie o poveste pentru: ${namesList}.
+
+TEMA ACESTEI POVEȘTI (nu o schimba, construiește totul în jurul ei):
+${storyTheme}
+
+Fă personajele să trăiască această situație cu emoții reale, dialog viu și un final cald. Surprinde-ne cu detalii neașteptate și amuzante.`;
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
@@ -66,7 +104,7 @@ Povestea trebuie să fie de 650-700 cuvinte.`;
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.85,
+      temperature: 0.95,
       max_tokens: 1800,
     });
 
@@ -87,7 +125,7 @@ Povestea trebuie să fie de 650-700 cuvinte.`;
         return NextResponse.json({ error: msg, code }, { status: 429 });
       }
     }
-    const message = error instanceof Error ? error.message : "Eroare necunoscuta";
+    const message = error instanceof Error ? error.message : "Eroare necunoscută";
     return NextResponse.json({ error: message, code: "UNKNOWN" }, { status: 500 });
   }
 }
