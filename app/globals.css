@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens. Raman definite pe :root (nu direct in @theme) pentru ca sunt
+ * folosite si de CSS scris manual (body::before, .glass), nu doar de utilitatile
+ * Tailwind. @theme inline de mai jos doar le mapeaza catre Tailwind.
+ */
 :root {
   --bg1: #0d0720;
   --bg2: #160d35;
@@ -13,6 +18,28 @@
   --accent: #f59e0b;
   --purple: #7c3aed;
   --purple-light: #a78bfa;
+
+  /* Inaltimea barii de navigare/header a shell-ului; folosita de .app-main. */
+  --shell-header-height: 0px;
+}
+
+/*
+ * Tailwind v4: expunem tokenii ca utilitati (bg-surface, text-muted, border-app...).
+ * Motiv: layout.tsx si page.tsx pot folosi clase utilitare fara sa duplice
+ * valorile hex. Alternativa respinsa: tailwind.config.js cu theme.extend —
+ * nu se aplica in v4 cu @import "tailwindcss" fara @config si ar fi un al
+ * doilea loc de adevar pentru aceleasi culori.
+ */
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-app-border: var(--border);
+  --color-app-border-bright: var(--border-bright);
+  --color-app-text: var(--text);
+  --color-app-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-purple: var(--purple);
+  --color-purple-light: var(--purple-light);
 }
 
 * {
@@ -29,7 +56,13 @@ body {
   background: linear-gradient(145deg, var(--bg1) 0%, var(--bg2) 45%, var(--bg3) 100%);
   background-attachment: fixed;
   color: var(--text);
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  /*
+   * --font-inter este setat de next/font in layout.tsx daca exista; fallback-ul
+   * pastreaza comportamentul anterior daca variabila nu e definita.
+   */
+  font-family: var(--font-inter, "Inter"), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
 }
 
@@ -58,8 +91,63 @@ body::before {
   z-index: 0;
 }
 
+/*
+ * Fix de stacking: overlay-ul de stele este pe z-index 0, iar copiii directi ai
+ * body-ului (root layout-ul) sunt implicit auto — la orice element cu fundal
+ * translucid stelele apareau peste continut. Ridicam shell-ul pe un plan propriu.
+ */
+body > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Containerul principal al shell-ului App Router (<main> din layout.tsx). */
+.app-main {
+  display: block;
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: calc(1.5rem + var(--shell-header-height)) 1rem 3rem;
+}
+
+@media (min-width: 768px) {
+  .app-main {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
 input, button, select, textarea {
   touch-action: manipulation;
+}
+
+/* Fonturile nu se mostenesc implicit pe controale in toate browserele. */
+input, button, select, textarea {
+  font-family: inherit;
+  font-size: 100%;
+}
+
+/* Accesibilitate: inel de focus vizibil pe tema intunecata, doar la navigare cu tastatura. */
+:focus-visible {
+  outline: 2px solid var(--purple-light);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Link de skip pentru cititoare de ecran / navigare cu tastatura. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.6rem 1rem;
+  background: var(--purple);
+  color: var(--text);
+  border-radius: 0 0 8px 0;
+}
+
+.skip-link:focus {
+  left: 0;
 }
 
 /* hide Next.js dev overlay */
@@ -85,7 +173,48 @@ nextjs-portal { display: none !important; }
   50% { transform: scaleY(1); }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .float-animation { animation: float 3s ease-in-out infinite; }
+
+/* Keyframes-ul pulse-glow exista deja; ii dam o clasa ca sa fie utilizabil din JSX. */
+.pulse-glow-animation { animation: pulse-glow 2s ease-in-out infinite; }
+
+/* Indicator audio (TTS): bare care oscileaza folosind keyframes-ul wave. */
+.wave-bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+}
+
+.wave-bars > span {
+  display: block;
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--purple-light);
+  transform-origin: center;
+  animation: wave 1s ease-in-out infinite;
+}
+
+.wave-bars > span:nth-child(2) { animation-delay: 0.15s; }
+.wave-bars > span:nth-child(3) { animation-delay: 0.3s; }
+.wave-bars > span:nth-child(4) { animation-delay: 0.45s; }
+.wave-bars > span:nth-child(5) { animation-delay: 0.6s; }
+
+/* Spinner de incarcare pentru apelurile catre /api/generate-story si /api/tts. */
+.spinner {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  border: 2px solid var(--border-bright);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
 
 .story-text {
   line-height: 1.9;
@@ -109,8 +238,49 @@ nextjs-portal { display: none !important; }
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border);
   border-radius: 20px;
+  transition: border-color 180ms ease, background-color 180ms ease;
 }
 
 .glass:hover {
   border-color: var(--border-bright);
+  background: var(--surface-hover);
+}
+
+/* Text vizibil doar pentru cititoare de ecran. */
+.sr-only-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * Respectam preferinta de sistem: animatiile decorative sunt oprite, dar
+ * spinner-ul ramane (incetinit) pentru ca semnalizeaza o stare functionala.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .float-animation,
+  .glow-text,
+  .pulse-glow-animation,
+  .wave-bars > span {
+    animation: none !important;
+  }
+
+  .glow-text {
+    -webkit-text-fill-color: var(--purple-light);
+    color: var(--purple-light);
+  }
+
+  .spinner {
+    animation-duration: 2s;
+  }
 }
