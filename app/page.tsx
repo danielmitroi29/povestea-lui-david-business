@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useEffect, useSyncExternalStore } from "react";
 
 const STORIES_KEY = "david_stories";
 const PAGE_SIZE = 20;
@@ -15,16 +15,71 @@ interface SavedStory {
   customPrompt?: string;
 }
 
-function getLocalStories(): SavedStory[] {
-  try { return JSON.parse(localStorage.getItem(STORIES_KEY) || "[]"); }
-  catch { return []; }
+/*
+ * Istoricul povestilor sta in localStorage, adica e stare EXTERNA lui React.
+ * De aceea se citeste cu `useSyncExternalStore`, nu cu un setState in efectul de
+ * montare: efectul insemna o randare in plus la fiecare montare si e semnalat ca
+ * eroare de React Compiler (`set-state-in-effect`).
+ *
+ * Nici initializarea lenesa a starii nu merge: `getServerSnapshot` trebuie sa
+ * returneze lista goala (pe server nu exista localStorage), iar daca prima
+ * randare din client ar citi deja povestile, HTML-ul serverului si cel al
+ * clientului ar diferi — nepotrivire de hidratare. Cu store-ul extern, React
+ * randeaza intai snapshot-ul de server si trece la cel real dupa hidratare.
+ */
+const EMPTY_STORIES: SavedStory[] = [];
+const storiesListeners = new Set<() => void>();
+
+/*
+ * Snapshot-ul trebuie sa fie STABIL referential intre apeluri identice, altfel
+ * React re-randeaza la infinit: `JSON.parse` intoarce alt array de fiecare data.
+ * Tinem minte ultimul text brut si rezultatul lui.
+ */
+let storiesCache: { raw: string; parsed: SavedStory[] } = { raw: "[]", parsed: EMPTY_STORIES };
+
+function readStoriesRaw(): string {
+  try { return localStorage.getItem(STORIES_KEY) || "[]"; }
+  catch { return "[]"; }
 }
+
+function getLocalStories(): SavedStory[] {
+  const raw = readStoriesRaw();
+  if (raw !== storiesCache.raw) {
+    let parsed: SavedStory[];
+    try { parsed = JSON.parse(raw); } catch { parsed = EMPTY_STORIES; }
+    storiesCache = { raw, parsed: Array.isArray(parsed) ? parsed : EMPTY_STORIES };
+  }
+  return storiesCache.parsed;
+}
+
+function getStoriesServerSnapshot(): SavedStory[] {
+  return EMPTY_STORIES;
+}
+
+function subscribeStories(onChange: () => void) {
+  storiesListeners.add(onChange);
+  // `storage` prinde doar modificarile din ALT tab; pe cele din acesta le
+  // anuntam noi, din `addLocalStory`/`removeLocalStory`.
+  const onStorage = (e: StorageEvent) => { if (e.key === STORIES_KEY) onChange(); };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    storiesListeners.delete(onChange);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+function notifyStories() {
+  storiesListeners.forEach((listener) => listener());
+}
+
 function addLocalStory(s: SavedStory) {
   const updated = [s, ...getLocalStories()].slice(0, MAX_STORIES);
   localStorage.setItem(STORIES_KEY, JSON.stringify(updated));
+  notifyStories();
 }
 function removeLocalStory(id: string) {
   localStorage.setItem(STORIES_KEY, JSON.stringify(getLocalStories().filter((s) => s.id !== id)));
+  notifyStories();
 }
 
 type SpeechState = "idle" | "speaking" | "paused";
@@ -39,16 +94,36 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [speechState, setSpeechState] = useState<SpeechState>("idle");
-  const [ttsLoading, setTtsLoading] = useState(false);
-  const [firstChunkB64, setFirstChunkB64] = useState<string | null>(null);
+  /*
+   * Pre-fetch-ul primului chunk audio, tinut IMPREUNA cu povestea pentru care
+   * s-a facut. Tinem si povestea in stare, nu doar rezultatul, pentru ca asa
+   * "reseteaza cand apare o poveste noua" devine o derivare, nu doua setState-uri
+   * in corpul efectului — care declansau un render in plus la fiecare poveste si
+   * sunt semnalate ca eroare de React Compiler.
+   *
+   * b64 === null  → inca se incarca
+   * b64 === ""    → pre-fetch esuat, se cade pe TTS-ul browserului
+   */
+  const [ttsChunk, setTtsChunk] = useState<{ story: string; b64: string | null }>({
+    story: "",
+    b64: null,
+  });
+  const firstChunkB64 = ttsChunk.story === story ? ttsChunk.b64 : null;
+  const ttsLoading = story !== "" && firstChunkB64 === null;
   const [envKeys, setEnvKeys] = useState({ openai: false, elevenlabs: false });
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
-  const [savedStories, setSavedStories] = useState<SavedStory[]>([]);
+  // Sursa e lista din localStorage; restul se deduce din ea si din pagina curenta.
+  const allStories = useSyncExternalStore(
+    subscribeStories, getLocalStories, getStoriesServerSnapshot);
   const [storiesPage, setStoriesPage] = useState(0);
-  const [storiesTotal, setStoriesTotal] = useState(0);
-  const [storiesPages, setStoriesPages] = useState(0);
-  const [storiesLoading, setStoriesLoading] = useState(false);
+  const storiesTotal = allStories.length;
+  const storiesPages = Math.ceil(storiesTotal / PAGE_SIZE) || 1;
+  // Pagina se corecteaza singura cand stergerea ultimei povesti goleste pagina
+  // pe care stateai — inainte ramaneai pe o pagina inexistenta, goala.
+  const currentPage = Math.min(storiesPage, storiesPages - 1);
+  const savedStories = allStories.slice(
+    currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
   const [showStoriesSection, setShowStoriesSection] = useState(false);
   const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
   const storyRef = useRef<HTMLDivElement>(null);
@@ -63,8 +138,6 @@ export default function Home() {
       })
       .catch(() => {});
 
-    loadStories(0);
-
     const checkMobile = () => setIsMobile(window.innerWidth < 520);
     checkMobile();
     window.addEventListener("resize", checkMobile);
@@ -73,9 +146,7 @@ export default function Home() {
 
   // Pre-fetch primul chunk imediat ce apare o poveste nouă
   useEffect(() => {
-    if (!story) { setFirstChunkB64(null); return; }
-    setFirstChunkB64(null);
-    setTtsLoading(true);
+    if (!story) return;
     const sentences = story.match(/[^.!?\n]+[.!?\n]+/g) ?? [story];
     const firstText = sentences.slice(0, 4).join("").trim() || story;
     let cancelled = false;
@@ -85,19 +156,13 @@ export default function Home() {
       body: JSON.stringify({ text: firstText }),
     })
       .then((r) => r.json())
-      .then((d) => { if (!cancelled && d.audioContent) setFirstChunkB64(d.audioContent); })
-      .catch(() => { if (!cancelled) setFirstChunkB64(""); }) // "" = fallback browser TTS
-      .finally(() => { if (!cancelled) setTtsLoading(false); });
+      // Un raspuns fara `audioContent` inseamna acelasi lucru ca un raspuns
+      // picat: nu avem audio. Inainte ramanea pe null, adica butonul se invartea
+      // la infinit in loc sa cada pe TTS-ul browserului.
+      .then((d) => { if (!cancelled) setTtsChunk({ story, b64: d.audioContent || "" }); })
+      .catch(() => { if (!cancelled) setTtsChunk({ story, b64: "" }); });
     return () => { cancelled = true; };
   }, [story]);
-
-  const loadStories = (page: number) => {
-    const all = getLocalStories();
-    setSavedStories(all.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
-    setStoriesTotal(all.length);
-    setStoriesPages(Math.ceil(all.length / PAGE_SIZE) || 1);
-    setStoriesPage(page);
-  };
 
   const saveStoryToHistory = (text: string, title: string) => {
     const filteredNames = names.filter((n) => n.trim());
@@ -110,7 +175,7 @@ export default function Home() {
       customPrompt: customPrompt || undefined,
     };
     addLocalStory(entry);
-    loadStories(0);
+    setStoriesPage(0);
   };
 
   const loadSavedStory = (s: SavedStory) => {
@@ -124,7 +189,6 @@ export default function Home() {
 
   const deleteSavedStory = (id: string) => {
     removeLocalStory(id);
-    loadStories(storiesPage);
   };
 
 
@@ -142,7 +206,14 @@ const handleNameChange = (index: number, value: string) => {
     if (names.length > 1) setNames(names.filter((_, i) => i !== index));
   };
 
-  const stopSpeech = useCallback(() => {
+  /*
+   * Fara `useCallback`: cu React Compiler activ, memoizarea manuala pe care el nu
+   * o poate pastra face sa fie sarita optimizarea INTREGII componente (eroare
+   * `preserve-manual-memoization`). Niciuna dintre functiile astea nu apare in
+   * vreo lista de dependinte, deci identitatea lor de la un render la altul nu
+   * schimba comportamentul.
+   */
+  const stopSpeech = () => {
     if (audioRef.current) {
       audioRef.current.onended = null;
       audioRef.current.onerror = null;
@@ -152,7 +223,7 @@ const handleNameChange = (index: number, value: string) => {
     }
     if (typeof window !== "undefined") window.speechSynthesis?.cancel();
     setSpeechState("idle");
-  }, []);
+  };
 
   const generateStory = async () => {
     const filteredNames = names.filter((n) => n.trim() !== "");
@@ -196,7 +267,7 @@ const handleNameChange = (index: number, value: string) => {
     }
   };
 
-  const fallbackBrowserTTS = useCallback((text: string) => {
+  const fallbackBrowserTTS = (text: string) => {
     if (typeof window === "undefined" || !window.speechSynthesis) {
       setSpeechState("idle");
       return;
@@ -219,9 +290,9 @@ const handleNameChange = (index: number, value: string) => {
     const voices = window.speechSynthesis.getVoices();
     if (voices.length > 0) speak();
     else window.speechSynthesis.addEventListener("voiceschanged", speak, { once: true });
-  }, []);
+  };
 
-  const startSpeech = useCallback(async () => {
+  const startSpeech = async () => {
     if (!story || firstChunkB64 === null) return;
     stopSpeech();
 
@@ -285,7 +356,7 @@ const handleNameChange = (index: number, value: string) => {
         audioRef.current = null;
       }, { once: true });
     }
-  }, [story, firstChunkB64, stopSpeech, fallbackBrowserTTS]);
+  };
 
   const pauseSpeech = () => {
     if (audioRef.current) audioRef.current.pause();
@@ -675,10 +746,7 @@ const handleNameChange = (index: number, value: string) => {
 
             {showStoriesSection && (
               <>
-                {storiesLoading ? (
-                  <div style={{ textAlign: "center", color: "#a78bfa", padding: 16 }}>Se încarcă…</div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
                     {savedStories.map((s) => {
                       const isActive = s.id === activeStoryId;
                       const date = new Date(s.createdAt).toLocaleDateString("ro-RO", { day: "numeric", month: "short", year: "numeric" });
@@ -736,28 +804,27 @@ const handleNameChange = (index: number, value: string) => {
                         </div>
                       );
                     })}
-                  </div>
-                )}
+                </div>
 
                 {/* Paginare */}
                 {storiesPages > 1 && (
                   <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginTop: 14 }}>
                     <button
                       type="button"
-                      disabled={storiesPage === 0}
-                      onClick={() => loadStories(storiesPage - 1)}
-                      style={{ ...smallBtnStyle, opacity: storiesPage === 0 ? 0.4 : 1 }}
+                      disabled={currentPage === 0}
+                      onClick={() => setStoriesPage(currentPage - 1)}
+                      style={{ ...smallBtnStyle, opacity: currentPage === 0 ? 0.4 : 1 }}
                     >
                       ← Anterior
                     </button>
                     <span style={{ color: "#a78bfa", fontSize: "0.85rem" }}>
-                      Pagina {storiesPage + 1} din {storiesPages}
+                      Pagina {currentPage + 1} din {storiesPages}
                     </span>
                     <button
                       type="button"
-                      disabled={storiesPage >= storiesPages - 1}
-                      onClick={() => loadStories(storiesPage + 1)}
-                      style={{ ...smallBtnStyle, opacity: storiesPage >= storiesPages - 1 ? 0.4 : 1 }}
+                      disabled={currentPage >= storiesPages - 1}
+                      onClick={() => setStoriesPage(currentPage + 1)}
+                      style={{ ...smallBtnStyle, opacity: currentPage >= storiesPages - 1 ? 0.4 : 1 }}
                     >
                       Următor →
                     </button>

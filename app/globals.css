@@ -18,9 +18,6 @@
   --accent: #f59e0b;
   --purple: #7c3aed;
   --purple-light: #a78bfa;
-
-  /* Inaltimea barii de navigare/header a shell-ului; folosita de .app-main. */
-  --shell-header-height: 0px;
 }
 
 /*
@@ -99,22 +96,6 @@ body::before {
 body > * {
   position: relative;
   z-index: 1;
-}
-
-/* Containerul principal al shell-ului App Router (<main> din layout.tsx). */
-.app-main {
-  display: block;
-  width: 100%;
-  max-width: 860px;
-  margin: 0 auto;
-  padding: calc(1.5rem + var(--shell-header-height)) 1rem 3rem;
-}
-
-@media (min-width: 768px) {
-  .app-main {
-    padding-left: 2rem;
-    padding-right: 2rem;
-  }
 }
 
 input, button, select, textarea {
