@@ -85,7 +85,6 @@ function removeLocalStory(id: string) {
 type SpeechState = "idle" | "speaking" | "paused";
 
 export default function Home() {
-  const [apiKey, setApiKey] = useState("");
   const [names, setNames] = useState<string[]>(["", ""]);
   const [customPrompt, setCustomPrompt] = useState("");
   const [age, setAge] = useState("");
@@ -112,7 +111,7 @@ export default function Home() {
   });
   const firstChunkB64 = ttsChunk.story === story ? ttsChunk.b64 : null;
   const ttsLoading = story !== "" && firstChunkB64 === null;
-  const [envKeys, setEnvKeys] = useState({ openai: false, elevenlabs: false });
+  const [aiReady, setAiReady] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   // Sursa e lista din localStorage; restul se deduce din ea si din pagina curenta.
@@ -134,10 +133,7 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
-      .then((cfg: { openAiKey?: string; hasEnvOpenAi?: boolean }) => {
-        if (cfg.openAiKey) setApiKey(cfg.openAiKey);
-        setEnvKeys({ openai: !!cfg.hasEnvOpenAi, elevenlabs: false });
-      })
+      .then((cfg: { hasEnvOpenAi?: boolean }) => setAiReady(!!cfg.hasEnvOpenAi))
       .catch(() => {});
 
     const checkMobile = () => setIsMobile(window.innerWidth < 520);
@@ -233,7 +229,7 @@ const handleNameChange = (index: number, value: string) => {
       setError("Te rog introdu cel puțin un nume!");
       return;
     }
-    if (!apiKey.trim() && !envKeys.openai) {
+    if (!aiReady) {
       setError("Cheia API OpenAI nu este configurată. Adaugă-o în variabilele de mediu ale serverului.");
       return;
     }
@@ -248,7 +244,7 @@ const handleNameChange = (index: number, value: string) => {
       const res = await fetch("/api/generate-story", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ names: filteredNames, customPrompt, age: age ? Number(age) : undefined, duration: duration ? Number(duration) : undefined, apiKey }),
+        body: JSON.stringify({ names: filteredNames, customPrompt, age: age ? Number(age) : undefined, duration: duration ? Number(duration) : undefined }),
       });
 
       const data = await res.json();
@@ -401,17 +397,17 @@ const handleNameChange = (index: number, value: string) => {
         <div style={{
           display: "inline-flex", alignItems: "center", gap: 6, marginTop: 12,
           padding: "5px 14px", borderRadius: 50,
-          background: (envKeys.openai || apiKey.trim()) ? "rgba(16,185,129,0.12)" : "rgba(100,100,120,0.15)",
-          border: `1px solid ${(envKeys.openai || apiKey.trim()) ? "rgba(16,185,129,0.3)" : "rgba(120,120,140,0.2)"}`,
+          background: aiReady ? "rgba(16,185,129,0.12)" : "rgba(100,100,120,0.15)",
+          border: `1px solid ${aiReady ? "rgba(16,185,129,0.3)" : "rgba(120,120,140,0.2)"}`,
         }}>
           <span style={{
             width: 7, height: 7, borderRadius: "50%",
-            background: (envKeys.openai || apiKey.trim()) ? "#10b981" : "#6b7280",
+            background: aiReady ? "#10b981" : "#6b7280",
             display: "inline-block",
-            boxShadow: (envKeys.openai || apiKey.trim()) ? "0 0 8px #10b981" : "none",
+            boxShadow: aiReady ? "0 0 8px #10b981" : "none",
           }} />
-          <span style={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em", color: (envKeys.openai || apiKey.trim()) ? "#34d399" : "#9ca3af" }}>
-            {(envKeys.openai || apiKey.trim()) ? "AI ACTIV" : "AI INACTIV"}
+          <span style={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em", color: aiReady ? "#34d399" : "#9ca3af" }}>
+            {aiReady ? "AI ACTIV" : "AI INACTIV"}
           </span>
         </div>
       </header>
@@ -440,6 +436,7 @@ const handleNameChange = (index: number, value: string) => {
                 <input
                   type="text"
                   value={name}
+                  maxLength={40}
                   onChange={(e) => handleNameChange(i, e.target.value)}
                   placeholder={`Numele ${i + 1}…`}
                   style={{ ...inputStyle, flex: 1 }}
@@ -543,6 +540,7 @@ const handleNameChange = (index: number, value: string) => {
           </p>
           <textarea
             value={customPrompt}
+            maxLength={500}
             onChange={(e) => setCustomPrompt(e.target.value)}
             placeholder="Adaugă detalii despre copii sau temă…"
             rows={3}

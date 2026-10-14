@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { STORY_SYSTEM_PROMPT } from "@/app/lib/storyPrompt";
+import { checkLimit, envInt } from "@/app/lib/rateLimit";
 
 // Durate permise (minute de lectură audio); ~130 de cuvinte pe minut
 const DURATIONS = [3, 5, 7, 10];
 const WORDS_PER_MINUTE = 130;
+
+const MAX_NAMES = 6;          // cât permite și interfața
+const MAX_NAME_LENGTH = 40;
+const MAX_PROMPT_LENGTH = 500;
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -23,20 +28,41 @@ const OPENING_STYLES = [
 
 export async function POST(req: NextRequest) {
   try {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "Cheia API OpenAI nu este configurată pe server." }, { status: 500 });
+    }
+
     const body = await req.json();
-    const { names, customPrompt, age, duration, apiKey } = body;
+    const { age, duration } = body;
+    const names: string[] = Array.isArray(body.names)
+      ? body.names.filter((n: unknown): n is string => typeof n === "string" && n.trim() !== "")
+          .map((n: string) => n.trim())
+      : [];
+    const customPrompt = typeof body.customPrompt === "string" ? body.customPrompt.trim() : "";
     const childAge = Number.isInteger(age) && age >= 0 && age <= 8 ? age : null;
     const minutes = DURATIONS.includes(duration) ? duration : null;
 
-    const resolvedApiKey = process.env.OPENAI_API_KEY || apiKey;
-    if (!resolvedApiKey) {
-      return NextResponse.json({ error: "Cheia API OpenAI este necesară." }, { status: 400 });
-    }
-    if (!names || names.length === 0) {
+    if (names.length === 0) {
       return NextResponse.json({ error: "Te rog introdu cel puțin un nume." }, { status: 400 });
     }
+    if (names.length > MAX_NAMES || names.some((n) => n.length > MAX_NAME_LENGTH)) {
+      return NextResponse.json({ error: `Maxim ${MAX_NAMES} nume, de cel mult ${MAX_NAME_LENGTH} de caractere.` }, { status: 400 });
+    }
+    if (customPrompt.length > MAX_PROMPT_LENGTH) {
+      return NextResponse.json({ error: `Detaliile pot avea cel mult ${MAX_PROMPT_LENGTH} de caractere.` }, { status: 400 });
+    }
 
-    const client = new OpenAI({ apiKey: resolvedApiKey });
+    const limited = checkLimit(req, "story", {
+      perIp: envInt("STORY_LIMIT_PER_HOUR", 10),
+      windowMs: 60 * 60 * 1000,
+      globalPerDay: envInt("STORY_LIMIT_PER_DAY", 300),
+    });
+    if (limited) {
+      return NextResponse.json({ error: limited, code: "RATE_LIMIT" }, { status: 429 });
+    }
+
+    const client = new OpenAI({ apiKey });
     const namesList = names.join(", ");
 
     // Un stil de deschidere ales aleator, ca poveștile să nu înceapă la fel
