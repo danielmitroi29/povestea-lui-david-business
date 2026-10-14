@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect, useSyncExternalStore } from "react";
-
-const STORIES_KEY = "david_stories";
-const PAGE_SIZE = 20;
-const MAX_STORIES = 200;
+import { useState, useRef, useEffect } from "react";
+import { authClient } from "@/app/lib/authClient";
+import { AccountBar, AuthCard, type Usage } from "@/app/components/Account";
+import { cardStyle, cardTitleStyle, inputStyle, smallBtnStyle, ttsBtnStyle } from "@/app/components/styles";
 
 interface SavedStory {
   id: string;
@@ -12,74 +11,6 @@ interface SavedStory {
   text: string;
   names: string[];
   createdAt: string;
-  customPrompt?: string;
-}
-
-/*
- * Istoricul povestilor sta in localStorage, adica e stare EXTERNA lui React.
- * De aceea se citeste cu `useSyncExternalStore`, nu cu un setState in efectul de
- * montare: efectul insemna o randare in plus la fiecare montare si e semnalat ca
- * eroare de React Compiler (`set-state-in-effect`).
- *
- * Nici initializarea lenesa a starii nu merge: `getServerSnapshot` trebuie sa
- * returneze lista goala (pe server nu exista localStorage), iar daca prima
- * randare din client ar citi deja povestile, HTML-ul serverului si cel al
- * clientului ar diferi — nepotrivire de hidratare. Cu store-ul extern, React
- * randeaza intai snapshot-ul de server si trece la cel real dupa hidratare.
- */
-const EMPTY_STORIES: SavedStory[] = [];
-const storiesListeners = new Set<() => void>();
-
-/*
- * Snapshot-ul trebuie sa fie STABIL referential intre apeluri identice, altfel
- * React re-randeaza la infinit: `JSON.parse` intoarce alt array de fiecare data.
- * Tinem minte ultimul text brut si rezultatul lui.
- */
-let storiesCache: { raw: string; parsed: SavedStory[] } = { raw: "[]", parsed: EMPTY_STORIES };
-
-function readStoriesRaw(): string {
-  try { return localStorage.getItem(STORIES_KEY) || "[]"; }
-  catch { return "[]"; }
-}
-
-function getLocalStories(): SavedStory[] {
-  const raw = readStoriesRaw();
-  if (raw !== storiesCache.raw) {
-    let parsed: SavedStory[];
-    try { parsed = JSON.parse(raw); } catch { parsed = EMPTY_STORIES; }
-    storiesCache = { raw, parsed: Array.isArray(parsed) ? parsed : EMPTY_STORIES };
-  }
-  return storiesCache.parsed;
-}
-
-function getStoriesServerSnapshot(): SavedStory[] {
-  return EMPTY_STORIES;
-}
-
-function subscribeStories(onChange: () => void) {
-  storiesListeners.add(onChange);
-  // `storage` prinde doar modificarile din ALT tab; pe cele din acesta le
-  // anuntam noi, din `addLocalStory`/`removeLocalStory`.
-  const onStorage = (e: StorageEvent) => { if (e.key === STORIES_KEY) onChange(); };
-  window.addEventListener("storage", onStorage);
-  return () => {
-    storiesListeners.delete(onChange);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
-function notifyStories() {
-  storiesListeners.forEach((listener) => listener());
-}
-
-function addLocalStory(s: SavedStory) {
-  const updated = [s, ...getLocalStories()].slice(0, MAX_STORIES);
-  localStorage.setItem(STORIES_KEY, JSON.stringify(updated));
-  notifyStories();
-}
-function removeLocalStory(id: string) {
-  localStorage.setItem(STORIES_KEY, JSON.stringify(getLocalStories().filter((s) => s.id !== id)));
-  notifyStories();
 }
 
 type SpeechState = "idle" | "speaking" | "paused";
@@ -90,6 +21,8 @@ export default function Home() {
   const [age, setAge] = useState("");
   const [duration, setDuration] = useState("");
   const [story, setStory] = useState("");
+  // Id-ul poveștii afișate; vocea se cere pe bucăți după el
+  const [storyId, setStoryId] = useState<string | null>(null);
   const [storyTitle, setStoryTitle] = useState("");
   const [storyCollapsed, setStoryCollapsed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -105,26 +38,33 @@ export default function Home() {
    * b64 === null  → inca se incarca
    * b64 === ""    → pre-fetch esuat, se cade pe TTS-ul browserului
    */
-  const [ttsChunk, setTtsChunk] = useState<{ story: string; b64: string | null }>({
-    story: "",
+  const [ttsChunk, setTtsChunk] = useState<{ storyId: string | null; b64: string | null; total: number }>({
+    storyId: null,
     b64: null,
+    total: 0,
   });
-  const firstChunkB64 = ttsChunk.story === story ? ttsChunk.b64 : null;
-  const ttsLoading = story !== "" && firstChunkB64 === null;
+  const firstChunkB64 = storyId && ttsChunk.storyId === storyId ? ttsChunk.b64 : null;
+  const ttsLoading = !!storyId && firstChunkB64 === null;
   const [aiReady, setAiReady] = useState(false);
+  const [googleLogin, setGoogleLogin] = useState(false);
+  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const userId = session?.user.id ?? null;
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [billing, setBilling] = useState(false);
+  // Crește după fiecare poveste nouă/ștearsă, ca să reîncarce cota și istoricul
+  const [reloadKey, setReloadKey] = useState(0);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
-  // Sursa e lista din localStorage; restul se deduce din ea si din pagina curenta.
-  const allStories = useSyncExternalStore(
-    subscribeStories, getLocalStories, getStoriesServerSnapshot);
   const [storiesPage, setStoriesPage] = useState(0);
-  const storiesTotal = allStories.length;
-  const storiesPages = Math.ceil(storiesTotal / PAGE_SIZE) || 1;
+  const [storiesData, setStoriesData] = useState<{ userId: string | null; stories: SavedStory[]; total: number; pages: number }>(
+    { userId: null, stories: [], total: 0, pages: 1 });
+  // Istoricul altui cont (după ieșire/intrare) nu se afișează nici o clipă
+  const mine = storiesData.userId === userId;
+  const savedStories = mine ? storiesData.stories : [];
+  const storiesTotal = mine ? storiesData.total : 0;
+  const storiesPages = mine ? storiesData.pages : 1;
   // Pagina se corecteaza singura cand stergerea ultimei povesti goleste pagina
-  // pe care stateai — inainte ramaneai pe o pagina inexistenta, goala.
   const currentPage = Math.min(storiesPage, storiesPages - 1);
-  const savedStories = allStories.slice(
-    currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
   const [showStoriesSection, setShowStoriesSection] = useState(false);
   const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
   const storyRef = useRef<HTMLDivElement>(null);
@@ -133,7 +73,10 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
-      .then((cfg: { hasEnvOpenAi?: boolean }) => setAiReady(!!cfg.hasEnvOpenAi))
+      .then((cfg: { hasEnvOpenAi?: boolean; google?: boolean }) => {
+        setAiReady(!!cfg.hasEnvOpenAi);
+        setGoogleLogin(!!cfg.google);
+      })
       .catch(() => {});
 
     const checkMobile = () => setIsMobile(window.innerWidth < 520);
@@ -142,51 +85,67 @@ export default function Home() {
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
+  // Cota de povești și dacă plățile sunt active, pentru contul curent
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((d: { usage?: Usage; billing?: boolean }) => {
+        if (cancelled) return;
+        setUsage(d.usage ?? null);
+        setBilling(!!d.billing);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [userId, reloadKey]);
+
+  // Istoricul poveștilor, de pe server
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    fetch(`/api/stories?page=${currentPage}`)
+      .then((r) => r.json())
+      .then((d: { stories?: SavedStory[]; total?: number; pages?: number }) => {
+        if (cancelled || !d.stories) return;
+        setStoriesData({ userId, stories: d.stories, total: d.total ?? 0, pages: d.pages ?? 1 });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [userId, currentPage, reloadKey]);
+
   // Pre-fetch primul chunk imediat ce apare o poveste nouă
   useEffect(() => {
-    if (!story) return;
-    const sentences = story.match(/[^.!?\n]+[.!?\n]+/g) ?? [story];
-    const firstText = sentences.slice(0, 4).join("").trim() || story;
+    if (!storyId) return;
     let cancelled = false;
     fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: firstText }),
+      body: JSON.stringify({ storyId, index: 0 }),
     })
       .then((r) => r.json())
       // Un raspuns fara `audioContent` inseamna acelasi lucru ca un raspuns
       // picat: nu avem audio. Inainte ramanea pe null, adica butonul se invartea
       // la infinit in loc sa cada pe TTS-ul browserului.
-      .then((d) => { if (!cancelled) setTtsChunk({ story, b64: d.audioContent || "" }); })
-      .catch(() => { if (!cancelled) setTtsChunk({ story, b64: "" }); });
+      .then((d) => { if (!cancelled) setTtsChunk({ storyId, b64: d.audioContent || "", total: d.total || 1 }); })
+      .catch(() => { if (!cancelled) setTtsChunk({ storyId, b64: "", total: 0 }); });
     return () => { cancelled = true; };
-  }, [story]);
-
-  const saveStoryToHistory = (text: string, title: string) => {
-    const filteredNames = names.filter((n) => n.trim());
-    const entry: SavedStory = {
-      id: crypto.randomUUID(),
-      title,
-      text,
-      names: filteredNames,
-      createdAt: new Date().toISOString(),
-      customPrompt: customPrompt || undefined,
-    };
-    addLocalStory(entry);
-    setStoriesPage(0);
-  };
+  }, [storyId]);
 
   const loadSavedStory = (s: SavedStory) => {
     stopSpeech();
     setStory(s.text);
+    setStoryId(s.id);
     setStoryTitle(s.title || "");
     setStoryCollapsed(false);
     setActiveStoryId(s.id);
     setTimeout(() => storyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   };
 
-  const deleteSavedStory = (id: string) => {
-    removeLocalStory(id);
+  const deleteSavedStory = async (id: string) => {
+    await fetch(`/api/stories?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+    if (id === storyId) { stopSpeech(); setStory(""); setStoryId(null); }
+    setReloadKey((k) => k + 1);
   };
 
 
@@ -230,7 +189,7 @@ const handleNameChange = (index: number, value: string) => {
       return;
     }
     if (!aiReady) {
-      setError("Cheia API OpenAI nu este configurată. Adaugă-o în variabilele de mediu ale serverului.");
+      setError("Serviciul de povești nu este configurat pe server.");
       return;
     }
 
@@ -238,6 +197,7 @@ const handleNameChange = (index: number, value: string) => {
     setErrorCode(null);
     setLoading(true);
     setStory("");
+    setStoryId(null);
     stopSpeech();
 
     try {
@@ -250,13 +210,16 @@ const handleNameChange = (index: number, value: string) => {
       const data = await res.json();
       if (!res.ok) {
         setErrorCode(data.code || "UNKNOWN");
+        if (data.code === "QUOTA") setReloadKey((k) => k + 1);
         throw new Error(data.error || "Eroare la generare");
       }
       setStory(data.story);
+      setStoryId(data.id);
       setStoryTitle(data.title || "");
       setStoryCollapsed(false);
-      setActiveStoryId(null);
-      saveStoryToHistory(data.story, data.title || "");
+      setActiveStoryId(data.id);
+      setStoriesPage(0);
+      setReloadKey((k) => k + 1);
       setTimeout(() => storyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "A apărut o eroare.");
@@ -291,7 +254,7 @@ const handleNameChange = (index: number, value: string) => {
   };
 
   const startSpeech = async () => {
-    if (!story || firstChunkB64 === null) return;
+    if (!story || !storyId || firstChunkB64 === null) return;
     stopSpeech();
 
     // Dacă pre-fetch-ul a eșuat (firstChunkB64 === "") → browser TTS direct
@@ -303,20 +266,15 @@ const handleNameChange = (index: number, value: string) => {
     setSpeechState("speaking");
     audio.play().catch(() => { fallbackBrowserTTS(story); return; });
 
-    // Restul chunk-urilor se fetch-uiesc și redau async — sesiunea audio e deja activă
-    const sentences = story.match(/[^.!?\n]+[.!?\n]+/g) ?? [story];
-    const CHUNK_SIZE = 4;
-    const textChunks: string[] = [];
-    for (let i = 0; i < sentences.length; i += CHUNK_SIZE) {
-      const c = sentences.slice(i, i + CHUNK_SIZE).join("").trim();
-      if (c) textChunks.push(c);
-    }
-
-    const fetchB64 = async (text: string): Promise<string> => {
+    // Restul chunk-urilor se fetch-uiesc și redau async — sesiunea audio e deja activă.
+    // Serverul împarte povestea; noi doar cerem bucățile pe rând, după index.
+    const total = ttsChunk.total;
+    const id = storyId;
+    const fetchB64 = async (index: number): Promise<string> => {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ storyId: id, index }),
       });
       const data = await res.json();
       if (!res.ok || !data.audioContent) throw new Error("Eroare TTS");
@@ -324,9 +282,9 @@ const handleNameChange = (index: number, value: string) => {
     };
 
     let current = audio;
-    let nextFetch = textChunks.length > 1 ? fetchB64(textChunks[1]) : null;
+    let nextFetch = total > 1 ? fetchB64(1) : null;
 
-    for (let i = 1; i < textChunks.length; i++) {
+    for (let i = 1; i < total; i++) {
       // Așteaptă să termine chunk-ul curent
       await new Promise<void>((resolve) => {
         if (current.ended || !audioRef.current) { resolve(); return; }
@@ -338,7 +296,7 @@ const handleNameChange = (index: number, value: string) => {
       try {
         const b64 = await (nextFetch as Promise<string>);
         if (!audioRef.current) break;
-        nextFetch = (i + 1 < textChunks.length) ? fetchB64(textChunks[i + 1]) : null;
+        nextFetch = (i + 1 < total) ? fetchB64(i + 1) : null;
 
         const next = new Audio(`data:audio/mp3;base64,${b64}`);
         audioRef.current = next;
@@ -423,6 +381,12 @@ const handleNameChange = (index: number, value: string) => {
         }}
       >
 
+
+        {/* Cont */}
+        {!sessionPending && !session && <AuthCard google={googleLogin} />}
+
+        {session && (<>
+        <AccountBar email={session.user.email} usage={usage} billing={billing} />
 
         {/* Names card */}
         <div style={cardStyle}>
@@ -588,34 +552,21 @@ const handleNameChange = (index: number, value: string) => {
               borderRadius: 16,
               padding: "16px 20px",
               fontSize: "0.9rem",
-              ...(errorCode === "NO_CREDITS"
+              ...(errorCode === "QUOTA"
                 ? { background: "#fff8e1", color: "#7c5c00", border: "1.5px solid #f0c040" }
-                : errorCode === "INVALID_KEY"
-                ? { background: "#fce4ec", color: "#880e4f", border: "1.5px solid #e57373" }
                 : errorCode === "RATE_LIMIT"
                 ? { background: "#e8f5e9", color: "#2e5900", border: "1.5px solid #81c784" }
                 : { background: "#ffe4e1", color: "#c0392b", border: "1px solid #e74c3c" }),
             }}
+            role="alert"
           >
-            {errorCode === "NO_CREDITS" && (
-              <>
-                <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: 4 }}>💸 Credite OpenAI epuizate</div>
-                <div>Contul tău OpenAI nu mai are credite. Reîncarcă-l din <a href="https://platform.openai.com/settings/organization/billing" target="_blank" rel="noopener noreferrer" style={{ color: "#7c5c00", fontWeight: 600 }}>dashboard-ul OpenAI</a> sau folosește generarea <strong>Locală</strong> (gratuită).</div>
-              </>
-            )}
-            {errorCode === "INVALID_KEY" && (
-              <>
-                <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: 4 }}>🔑 Cheie API invalidă</div>
-                <div>Cheia introdusă nu este corectă. Verifică-o în <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: "#880e4f", fontWeight: 600 }}>dashboard-ul OpenAI</a>.</div>
-              </>
+            {errorCode === "QUOTA" && (
+              <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: 4 }}>📖 Ai folosit toate poveștile</div>
             )}
             {errorCode === "RATE_LIMIT" && (
-              <>
-                <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: 4 }}>⏳ Prea multe cereri</div>
-                <div>Ai atins limita de cereri pe minut. Așteaptă câteva secunde și încearcă din nou.</div>
-              </>
+              <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: 4 }}>⏳ Prea multe cereri</div>
             )}
-            {(!errorCode || errorCode === "UNKNOWN") && <>⚠️ {error}</>}
+            <div>{errorCode === "QUOTA" || errorCode === "RATE_LIMIT" ? error : <>⚠️ {error}</>}</div>
           </div>
         )}
 
@@ -880,6 +831,7 @@ const handleNameChange = (index: number, value: string) => {
           </div>
         )}
 
+        </>)}
       </main>
 
       <footer
@@ -896,62 +848,3 @@ const handleNameChange = (index: number, value: string) => {
     </div>
   );
 }
-
-// ── Shared micro-styles ──────────────────────────────────────────────────────
-
-const cardStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.05)",
-  backdropFilter: "blur(20px)",
-  WebkitBackdropFilter: "blur(20px)",
-  border: "1px solid rgba(167,139,250,0.22)",
-  borderRadius: 20,
-  padding: "18px",
-  boxShadow: "0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.07)",
-  transition: "border-color 0.2s",
-};
-
-const cardTitleStyle: React.CSSProperties = {
-  fontSize: "0.88rem",
-  fontWeight: 700,
-  color: "#a78bfa",
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  marginTop: 0,
-  marginBottom: 12,
-};
-
-const inputStyle: React.CSSProperties = {
-  border: "1px solid rgba(167,139,250,0.3)",
-  borderRadius: 12,
-  padding: "10px 14px",
-  fontSize: "0.95rem",
-  background: "rgba(255,255,255,0.06)",
-  outline: "none",
-  color: "#f0e8ff",
-  fontFamily: "inherit",
-  width: "100%",
-};
-
-const smallBtnStyle: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: 12,
-  border: "1px solid rgba(167,139,250,0.35)",
-  background: "rgba(124,58,237,0.15)",
-  color: "#a78bfa",
-  cursor: "pointer",
-  fontSize: "0.9rem",
-};
-
-const ttsBtnStyle = (color: string): React.CSSProperties => ({
-  padding: "11px 20px",
-  borderRadius: 50,
-  border: "none",
-  background: color,
-  color: "white",
-  cursor: "pointer",
-  fontSize: "0.88rem",
-  fontWeight: 700,
-  minHeight: 44,
-  letterSpacing: "0.02em",
-  boxShadow: `0 4px 16px ${color}55`,
-});
