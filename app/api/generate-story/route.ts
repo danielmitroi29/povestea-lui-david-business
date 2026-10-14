@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { STORY_SYSTEM_PROMPT } from "@/app/lib/storyPrompt";
+
+// Durate permise (minute de lectură audio); ~130 de cuvinte pe minut
+const DURATIONS = [3, 5, 7, 10];
+const WORDS_PER_MINUTE = 130;
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -8,7 +13,7 @@ function pick<T>(arr: T[]): T {
 // Stiluri de deschidere — fiecare impune o structură narativă diferită
 const OPENING_STYLES = [
   "Începe IN MEDIAS RES: prima propoziție aruncă personajul direct în acțiune. Nu descrie cine este, ci ce face sau ce i se întâmplă chiar acum.",
-  "Începe cu un DIALOG: prima linie este exact ce spune sau strigă personajul principal, între ghilimele.",
+  "Începe cu un DIALOG: prima propoziție a poveștii (după titlu) este exact ce spune sau strigă personajul principal, între ghilimele.",
   "Începe cu o ONOMATOPEE sau un sunet neașteptat care îl surprinde pe personaj și declanșează aventura.",
   "Începe cu O SURPRIZĂ sau ceva ciudat pe care personajul îl descoperă dimineața (un obiect, un animal, un bilet misterios).",
   "Începe cu O SENZAȚIE fizică sau emoție puternică trăită de personaj: foame, frică ușoară, bucurie explozivă, curiozitate.",
@@ -16,32 +21,12 @@ const OPENING_STYLES = [
   "Începe cu O ÎNTREBARE pe care și-o pune personajul în gând, urmată imediat de o acțiune.",
 ];
 
-// Teme și conflicte diverse — FĂRĂ mingea pierdută
-const STORY_THEMES = [
-  "Personajul găsește un pui de pasăre căzut din cuib și încearcă să îl ajute să se întoarcă acasă.",
-  "Personajul vrea să construiască cea mai mare casă din perne și pături din lume, dar tot se dărâmă.",
-  "Personajul descoperă că planta din ghiveci a înflorit peste noapte și crede că e magică.",
-  "Personajul face o greșeală mică (varsă sucul, rupe ceva) și încearcă să repare totul înainte să afle mama.",
-  "Personajul ajută un prieten care plânge pentru că nu știe să facă ceva și îl învață pas cu pas.",
-  "Personajul se teme de un tunet puternic și mama îl ajută să înțeleagă că nu e periculos.",
-  "Personajul pregătește în secret o surpriză pentru ziua de naștere a mamei sau tatei.",
-  "Personajul descoperă un melc în grădină și îl urmărește toată dimineața, curioasă/curios unde merge.",
-  "Personajul vrea să zboare ca o pasăre și încearcă tot felul de metode amuzante care eșuează comic.",
-  "Personajul primește un pachet misterios de la bunica și trebuie să ghicească ce e înăuntru.",
-  "Personajul încearcă să adoarmă dar nu poate, și îi povestește jucăriei preferate tot felul de gânduri.",
-  "Personajul ajută la cumpărături și pierde lista, trebuie să își amintească tot ce era pe ea.",
-  "Personajul descoperă că o jucărie veche uitată are o poveste specială și o repară cu grijă.",
-  "Personajul încearcă să facă o prăjitură surpriză și bucătăria devine haos amuzant.",
-  "Personajul găsește o omidă pe o frunză și o îngrijește zilnic până devine fluture.",
-  "Personajul se plictisește o zi ploioasă și inventează un joc nou din obiecte de prin casă.",
-  "Personajul încearcă să cânte un cântec pentru bunica și îl tot uită, dar nu se lasă.",
-  "Personajul se pierde scurt în parc și găsește curajul să ceară ajutor unui adult.",
-];
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { names, customPrompt, apiKey } = body;
+    const { names, customPrompt, age, duration, apiKey } = body;
+    const childAge = Number.isInteger(age) && age >= 0 && age <= 8 ? age : null;
+    const minutes = DURATIONS.includes(duration) ? duration : null;
 
     const resolvedApiKey = process.env.OPENAI_API_KEY || apiKey;
     if (!resolvedApiKey) {
@@ -54,64 +39,43 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey: resolvedApiKey });
     const namesList = names.join(", ");
 
-    // Selectăm aleator la fiecare cerere — garantează diversitate
+    // Un stil de deschidere ales aleator, ca poveștile să nu înceapă la fel
     const openingStyle = pick(OPENING_STYLES);
-    const storyTheme   = customPrompt ? null : pick(STORY_THEMES);
 
-    const systemPrompt = `Ești un povestitor creativ pentru copii de 3 ani care scrie povești în limba română.
+    const userPrompt = `Personajele principale ale poveștii: ${namesList}.
+${childAge !== null ? `Vârsta copilului: ${childAge} ${childAge === 1 ? "an" : "ani"}.\n` : ""}${minutes !== null ? `Durata dorită: aproximativ ${minutes} minute de ascultare (în jur de ${minutes * WORDS_PER_MINUTE} de cuvinte).\n` : ""}${customPrompt ? `\nTema dorită de utilizator: ${customPrompt}\n` : ""}
+Sugestie pentru deschidere: ${openingStyle}
 
-Prima linie a răspunsului tău trebuie să fie exact în formatul:
-TITLU: <titlu scurt și poetic, maxim 7 cuvinte>
-
-Apoi scrie povestea.
-
-━━━ REGULI DE LIMBAJ (vârsta 3 ani) ━━━
-• Propoziții SCURTE: 5-7 cuvinte fiecare, pe rând nou
-• Vocabular SIMPLU: doar cuvinte cunoscute de un copil de 3 ani
-• Onomatopee vii: Bum! Poc! Trosc! Miau! Cuac! Hap! Zzz! Pleosc!
-• REPETIȚIE intenționată: repetă o frază cheie de 2-3 ori
-• Dialog: include cel puțin 2-3 replici scurte între personaje
-• Final cald: personajul ajunge acasă, e îmbrățișat, e fericit
-• Morală concretă: o singură propoziție simplă
-• Lungime: 220-280 cuvinte
-
-━━━ INTERZIS ━━━
-• NU începe cu „[Nume] este un băiat/o fată vesel/ă" sau orice variantă
-• NU scrie „[Nume] este un copil..." la început
-• NU folosi mingea pierdută ca temă sau problemă
-• NU folosi cuvinte abstracte, lungi sau filozofice
-• NU repeta aceeași structură de poveste ca data trecută
-
-━━━ STIL DE DESCHIDERE OBLIGATORIU PENTRU ACEASTĂ POVESTE ━━━
-${openingStyle}`;
-
-    const userPrompt = customPrompt
-      ? `Scrie o poveste pentru: ${namesList}.
-
-TEMA DATĂ DE UTILIZATOR: ${customPrompt}
-
-Integrează tema natural în toată povestea — la început ca context, la mijloc ca instrument de rezolvare, la final ca victorie clară. Povestea trebuie să fie vie, cu dialog și momente amuzante.`
-      : `Scrie o poveste pentru: ${namesList}.
-
-TEMA ACESTEI POVEȘTI (nu o schimba, construiește totul în jurul ei):
-${storyTheme}
-
-Fă personajele să trăiască această situație cu emoții reale, dialog viu și un final cald. Surprinde-ne cu detalii neașteptate și amuzante.`;
+Prima linie a răspunsului trebuie să fie doar titlul poveștii, fără ghilimele sau alte marcaje.`;
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: STORY_SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.95,
-      max_tokens: 1800,
+      temperature: 0.9,
+      // Cu rezervă: 10 minute (~1.300 de cuvinte) în română înseamnă ~3.000 de tokenuri
+      max_tokens: 4000,
     });
 
-    const raw = completion.choices[0]?.message?.content || "";
-    const titleMatch = raw.match(/^TITLU:\s*(.+)/m);
-    const title = titleMatch ? titleMatch[1].trim() : `Povestea lui ${names[0]}`;
-    const story = raw.replace(/^TITLU:\s*.+\n*/m, "").trim();
+    const choice = completion.choices[0];
+    // Povestea a fost tăiată de limita de tokenuri: mai bine eroare decât o poveste fără final
+    if (choice?.finish_reason === "length") {
+      return NextResponse.json(
+        { error: "Povestea a ieșit prea lungă și s-a întrerupt. Încearcă din nou sau alege o durată mai scurtă.", code: "TRUNCATED" },
+        { status: 502 },
+      );
+    }
+    const raw = choice?.message?.content || "";
+    // Prima linie nevidă e titlul; curățăm eventualele marcaje (#, **, ghilimele, „TITLU:")
+    const lines = raw.trim().split("\n");
+    const title = (lines[0] || "")
+      .replace(/^#+\s*/, "")
+      .replace(/^(titlu|title)\s*:\s*/i, "")
+      .replace(/^[*_"„“]+|[*_"”“]+$/g, "")
+      .trim() || `Povestea lui ${names[0]}`;
+    const story = lines.slice(1).join("\n").trim();
 
     return NextResponse.json({ story, title });
   } catch (error: unknown) {

@@ -88,6 +88,8 @@ export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [names, setNames] = useState<string[]>(["", ""]);
   const [customPrompt, setCustomPrompt] = useState("");
+  const [age, setAge] = useState("");
+  const [duration, setDuration] = useState("");
   const [story, setStory] = useState("");
   const [storyTitle, setStoryTitle] = useState("");
   const [storyCollapsed, setStoryCollapsed] = useState(false);
@@ -246,7 +248,7 @@ const handleNameChange = (index: number, value: string) => {
       const res = await fetch("/api/generate-story", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ names: filteredNames, customPrompt, apiKey }),
+        body: JSON.stringify({ names: filteredNames, customPrompt, age: age ? Number(age) : undefined, duration: duration ? Number(duration) : undefined, apiKey }),
       });
 
       const data = await res.json();
@@ -482,6 +484,51 @@ const handleNameChange = (index: number, value: string) => {
               + Adaugă un copil
             </button>
           )}
+        </div>
+
+        {/* Varsta */}
+        <div style={cardStyle}>
+          <label htmlFor="child-age" style={{ ...cardTitleStyle, display: "block", marginBottom: 4 }}>
+            🎂 Vârsta copilului{" "}
+            <span style={{ fontWeight: 400, fontSize: "0.85rem" }}>(opțional)</span>
+          </label>
+          <p style={{ color: "rgba(167,139,250,0.6)", fontSize: "0.78rem", marginBottom: 8 }}>
+            Lungimea și complexitatea poveștii se potrivesc vârstei.
+          </p>
+          <select
+            id="child-age"
+            value={age}
+            onChange={(e) => setAge(e.target.value)}
+            style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+          >
+            <option value="">Nespecificată (potrivită pentru 4–6 ani)</option>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((y) => (
+              <option key={y} value={y}>
+                {y === 1 ? "1 an" : `${y} ani`}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Durata */}
+        <div style={cardStyle}>
+          <label htmlFor="story-duration" style={{ ...cardTitleStyle, display: "block", marginBottom: 4 }}>
+            ⏱️ Durata poveștii{" "}
+            <span style={{ fontWeight: 400, fontSize: "0.85rem" }}>(opțional)</span>
+          </label>
+          <select
+            id="story-duration"
+            value={duration}
+            onChange={(e) => setDuration(e.target.value)}
+            style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+          >
+            <option value="">Potrivită vârstei</option>
+            {[3, 5, 7, 10].map((m) => (
+              <option key={m} value={m}>
+                ~{m} minute
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Custom prompt */}

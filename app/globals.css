@@ -108,6 +108,12 @@ input, button, select, textarea {
   font-size: 100%;
 }
 
+/* Lista derulanta a unui <select> e desenata de browser: fara fundal opac, textul deschis ar fi ilizibil. */
+select option {
+  background: var(--bg2);
+  color: var(--text);
+}
+
 /* Accesibilitate: inel de focus vizibil pe tema intunecata, doar la navigare cu tastatura. */
 :focus-visible {
   outline: 2px solid var(--purple-light);
